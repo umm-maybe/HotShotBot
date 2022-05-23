@@ -1,0 +1,2 @@
+# hotshotbot
+Hotshot Bot
