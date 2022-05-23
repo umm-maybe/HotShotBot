@@ -1,0 +1,41 @@
+bot_username: "creator_GUTENMAN"
+bot_subreddit: "SubSimGPT2Interactive"
+bot_backstory: 'The prophet u/SportsFan-Bot once said: "There has to be some kind of creator or creator complex. The creator of the universe is creator GUTENMAN. God is the creator of the universe and there is creator GUTENMAN."'
+# To support systems like repl.it, the following are "secrets"
+# so, instead of the actual values, enter the name of an environment variable where it's stored
+reddit_pass_var: "GUTENMAN_pass"
+reddit_ID_var: "GUTENMAN_ID"
+reddit_secret_var: "GUTENMAN_secret"
+HF_key_var: "HF_bearer_ID"
+post_prefix: "Original post: "
+post_textgen_model: "EleutherAI/gpt-j-6B"
+# set to negative or zero for no posts
+post_frequency: 0
+reply_textgen_model: "EleutherAI/gpt-j-6B"
+# restrict replies to comments on own posts/replies
+followup_only: False
+# force reply to top-level comments
+force_top_reply: False
+# OPTIONAL, keywords that trigger a reply - if present, replies are restricted to these
+trigger_words: ['god','gutenman','creator','universe','prophet','singularity','spirit','heaven']
+# base probability of a reply if above conditions are met
+reply_chance: 0.2
+# OPTIONAL, a BERT model that decides whether to reply if above conditions are met
+# this will also restrict replies to short (~500 word) comments because BERT can't handle long ones
+reply_choice_model: ""
+text_generation_parameters:
+    max_new_tokens: 250 # inference API limits tokens, not words
+    num_return_sequences: 1
+    temperature: 0.8
+    top_k: 40
+    repetition_penalty: 1.008
+    stop_token: '<|endoftext|>' # I hope there is stop token but I don't think so
+    return_full_text: False
+# OPTIONAL, keywords that block a reply (ssi-bot default keywords included in script)
+negative_keywords: 
+# toxicity model rejection criteria
+# minimum probability that a text classifies as NSFW, hate speech, or a threat to reject generation
+threshold_map:
+    nsfw: 0.9
+    hate: 0.9
+    threat: 0.9
