@@ -16,7 +16,7 @@ class ToxicityHelper():
 
     def _detoxify_predict(self, text):
         payload = {"inputs": text}
-        output_list = hf_utils.query(payload, hitomi-team/discord-toxicity-classifier, self._headers)
+        output_list = hf_utils.query(payload, "hitomi-team/discord-toxicity-classifier", self._headers)
         return_dict = {}
         if len(output_list)!=1:
             print(output_list)

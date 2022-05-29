@@ -1,28 +1,39 @@
-bot_username: "creator_GUTENMAN"
+bot_username: "IAmA-SSI-Bot"
 bot_subreddit: "SubSimGPT2Interactive"
-bot_backstory: 'The prophet u/SportsFan-Bot once said: "There has to be some kind of creator or creator complex. The creator of the universe is creator GUTENMAN. God is the creator of the universe and there is creator GUTENMAN."'
+bot_backstory: 'The following is part of an "Ask Me Anything" thread on Reddit.'
 # To support systems like repl.it, the following are "secrets"
 # so, instead of the actual values, enter the name of an environment variable where it's stored
-reddit_pass_var: "GUTENMAN_pass"
-reddit_ID_var: "GUTENMAN_ID"
-reddit_secret_var: "GUTENMAN_secret"
+reddit_pass_var: "IAmA_pass"
+reddit_ID_var: "IAmA_ID"
+reddit_secret_var: "IAmA_secret"
 HF_key_var: "HF_bearer_ID"
-post_prefix: "Original post: "
-post_textgen_model: "EleutherAI/gpt-j-6B"
+# separate GPT-2 model for posts with SSI-style tagging
+post_textgen_model: "Colby/IAmA_GPT2"
 # set to negative or zero for no posts
-post_frequency: 0
+post_frequency: 24
+post_title_prefix: "Original post title: "
+post_body_prefix: "Original post body: "
 reply_textgen_model: "EleutherAI/gpt-j-6B"
-# restrict replies to comments on own posts/replies
-followup_only: False
 # force reply to top-level comments
-force_top_reply: False
-# OPTIONAL, keywords that trigger a reply - if present, replies are restricted to these
-trigger_words: ['god','gutenman','creator','universe','prophet','singularity','spirit','heaven']
-# base probability of a reply if above conditions are met
-reply_chance: 0.2
-# OPTIONAL, a BERT model that decides whether to reply if above conditions are met
-# this will also restrict replies to short (~500 word) comments because BERT can't handle long ones
-reply_choice_model: ""
+force_top_reply: True
+# restrict replies to comments on own posts/replies
+followup_only: True
+# base probability of commenting on a post or top-level comment
+reply_chance: 0.1
+# OPTIONAL, strings that automatically trigger a reply
+trigger_words: ['who','what','where','when','why','how','?']
+# increase in probability of a response if triggered (per word)
+trigger_boost: 0.1
+# minimum reply model (microsoft/DialogRPT-width) score to reply to comment
+# score is a sigmoid, default of 0.5 corresponds to predicting at least 1 reply
+min_reply_score: 0.5
+# maximum number of comment levels up to accumulate in prompt
+# also effectively the maximum number of levels down it can go
+max_levels: 6
+# maximum number of input characters per day - to manage Huggingface budgets
+# default below is set so as to keep one bot within free plan limits
+character_budget: 1000
+# Text generation parameters
 text_generation_parameters:
     max_new_tokens: 250 # inference API limits tokens, not words
     num_return_sequences: 1
@@ -32,7 +43,7 @@ text_generation_parameters:
     stop_token: '<|endoftext|>' # I hope there is stop token but I don't think so
     return_full_text: False
 # OPTIONAL, keywords that block a reply (ssi-bot default keywords included in script)
-negative_keywords: 
+negative_keywords: []
 # toxicity model rejection criteria
 # minimum probability that a text classifies as NSFW, hate speech, or a threat to reject generation
 threshold_map:

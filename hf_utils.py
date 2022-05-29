@@ -17,7 +17,7 @@ def query(payload, model_path, headers):
             time.sleep(3)
     return response.json()
 
-def generate_text(model_path, headers, prompt, text_generation_parameters):
+def generate_text(prompt, model_path, text_generation_parameters, headers):
     API_URL = "https://api-inference.huggingface.co/models/" + model_path
     start_time = time.time()
     payload = {"inputs": prompt, "parameters": text_generation_parameters}
@@ -27,6 +27,8 @@ def generate_text(model_path, headers, prompt, text_generation_parameters):
     print(f'{len(output_list)} sample(s) of text generated in {duration} seconds.')
     if output_list:
         return(output_list[0]['generated_text'])
+    else:
+        return('')
 
 def clean_text(generated_text):
     truncate = 0
