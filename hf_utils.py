@@ -5,26 +5,24 @@ import re
 # function for Huggingface API calls
 def query(payload, model_path, headers):
     API_URL = "https://api-inference.huggingface.co/models/" + model_path
-    while True:
+    for retry in range(3):
         response = requests.post(API_URL, headers=headers, json=payload)
         if response.status_code == requests.codes.ok:
+            return response.json()
             break
         else:
             # Not connected to internet maybe?
-            print('Unsuccessful request, status code '+ str(response.status_code))
-            print(response.json()) #debug only
             if response.status_code==404:
                 print('Are you connected to the internet?')
-                print(API_URL)
-                break
-            if response.status_code==400:
-                print(headers)
+                print('URL attempted = '+API_URL)
                 break
             if response.status_code==503:
+                print(response.json()['error'])
                 time.sleep(response.json()['estimated_time'])
             else:
+                print('Unsuccessful request, status code '+ str(response.status_code))
+                print(response.json()) #debug only
                 print(payload)
-    return response.json()
 
 def generate_text(prompt, model_path, text_generation_parameters, headers):
     start_time = time.time()

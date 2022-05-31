@@ -1,6 +1,6 @@
 bot_username: "IAmA-SSI-Bot"
-# bot_subreddit: "SubSimGPT2Interactive"
-bot_subreddit: "test"
+bot_subreddit: "SubSimGPT2Interactive"
+# bot_subreddit: "test"
 bot_backstory: 'The following is part of an "Ask Me Anything" thread on Reddit.'
 # To support systems like repl.it, the following are "secrets"
 # so, instead of the actual values, enter the name of an environment variable where it's stored
@@ -11,7 +11,7 @@ HF_key_var: "HF_BEARER_ID"
 # separate GPT-2 model for posts with SSI-style tagging
 post_textgen_model: "Colby/IAmA_GPT2"
 # set to negative or zero for no posts
-post_frequency: 24
+post_frequency: 0
 post_title_prefix: "Original post title: "
 post_body_prefix: "Original post body: "
 reply_textgen_model: "EleutherAI/gpt-j-6B"

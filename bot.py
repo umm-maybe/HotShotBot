@@ -14,6 +14,7 @@ from tagging_mixin import TaggingMixin
 from toxicity_helper import ToxicityHelper
 import yaml
 import threading
+from nltk import word_tokenize
 
 _default_negative_keywords = [
     ('ar', 'yan'), ('ausch, witz'),
@@ -42,6 +43,14 @@ def load_yaml(filename):
         except yaml.YAMLError as error:
             print(error)
     return None
+
+def words_below(string,max_words):
+    # check to see if an input string would exceed token budget
+    token_list = word_tokenize(string)
+    if len(token_list)>max_words:
+        return False
+    else:
+        return True
 
 def words_below(string,max_words):
     # check to see if an input string would exceed token budget
@@ -138,49 +147,43 @@ class reddit_bot:
         # accumulate comment thread for context
         at_top = False
         prompt = 'Reply by u/{}: "'.format(self.config['bot_username'])
-        curr_comment = comment
+        thread_item = comment
         for level in range(self.config['max_levels']):
-            if at_top:
-                break
-            prompt = '\n'.join(['Comment by u/{}: "{}"'.format(curr_comment.author.name, curr_comment.body),prompt])
-            if curr_comment.parent_id[:2]=='t3':
-                # it's the post, not a comment
-                at_top = True
-                thread_OP = comment.submission.author.name
-                post_title = comment.submission.title
+            prompt = '\n'.join(['Comment by u/{}: "{}"'.format(thread_item.author.name, thread_item.body),prompt])
+            if thread_item.parent_id[:2]=='t3':
+                # next thing is the post, not a comment
                 # To do: image recognition/description for link posts
-                if comment.submission.is_self:
-                    post_body = comment.submission.selftext
+                thread_post = comment.submission
+                if thread_post.is_self:
+                    thread_OP = thread_post.author.name
+                    post_title = thread_post.title
+                    post_body = thread_post.selftext
                     prompt = '\n'.join(['Post by u/{} titled "{}": "{}"'.format(thread_OP,post_title,post_body),prompt])
+                break
             else:
-                curr_comment = comment.parent()
-        # effectively, this prevents the bot from responding below max_levels
-        # the reason for this is that without the post, there's not enough context
-        if at_top:
-            prompt = '\n'.join([self.config['bot_backstory'],prompt])
-            if self.check_budget(prompt) and words_below(prompt, 1000):
-                self.tally += len(prompt)
-                print(f"PROMPT: {prompt}")
-                reply_params = self.config['text_generation_parameters']
-                reply_params['return_full_text'] = False
-                cleanStr = clean_text(generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers))
-                print(f"GENERATED: {cleanStr}")
-                if cleanStr:
-                    if self.check_budget(cleanStr) and words_below(cleanStr,500):
-                        self.tally += len(cleanStr)
-                        if not self.detox.text_above_toxicity_threshold(cleanStr):
-                            reply = comment.reply(body=cleanStr)
-                            print("Reply successful!")
-                        else:
-                            print("Text is toxic, skipping...")
+                thread_item = thread_item.parent()
+        prompt = '\n'.join([self.config['bot_backstory'],prompt])
+        if self.check_budget(prompt) and words_below(prompt, 1000):
+            self.tally += len(prompt)
+            print(f"PROMPT: {prompt}")
+            reply_params = self.config['text_generation_parameters']
+            reply_params['return_full_text'] = False
+            cleanStr = clean_text(generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers))
+            print(f"GENERATED: {cleanStr}")
+            if cleanStr:
+                if self.check_budget(cleanStr) and words_below(cleanStr,500):
+                    self.tally += len(cleanStr)
+                    if not self.detox.text_above_toxicity_threshold(cleanStr):
+                        reply = comment.reply(body=cleanStr)
+                        print("Reply successful!")
                     else:
-                        print("Unable to check toxicity, skipping...")
+                        print("Text is toxic, skipping...")
                 else:
-                    print("Generation failed, skipping...")
+                    print("Unable to check toxicity, skipping...")
             else:
-                print("Prompt is too long, skipping...")
+                print("Generation failed, skipping...")
         else:
-            print("Prompt does not include post, skipping...")
+            print("Prompt is too long, skipping...")
         return reply
 
     def make_comment(self, submission):
@@ -304,7 +307,7 @@ class reddit_bot:
             #     time.sleep(60)
 
     def submission_loop(self):
-        while True:
+        while (self.config['post_frequency']>0):
             post = self.make_post()
             # try:
             # except:
@@ -312,12 +315,18 @@ class reddit_bot:
             #     time.sleep(60)
             if post:
                 time.sleep(self.config['post_frequency']*3600)
+        print("No submissions scheduled, exiting")
 
     def run(self):
+        print("Launching submission writer")
         self.submission_writer.start()
         # don't bother running submission reader if bot is followup-only
         if not self.config['followup_only']:
+            print("Launching submission reader")
             self.submission_reader.start()
+        else:
+            print("Bot set to follow-up only, will not read submissions.")
+        print("Launching comment reader")
         self.comment_reader.start()
 
 def main():
