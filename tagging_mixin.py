@@ -230,6 +230,8 @@ class TaggingMixin():
 
         idx_st_start = generated_text.find(self._selftext_start_tag)
         idx_st_end = generated_text.find(self._end_tag, (idx_st_start + len(self._selftext_start_tag)))
+        if idx_st_end == -1:
+            idx_st_end = generated_text.find("!!!", (idx_st_start + len(self._selftext_start_tag)))
 
         if idx_st_start == -1 or idx_st_end == -1:
             return None

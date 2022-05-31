@@ -1,4 +1,6 @@
 import requests
+import time
+import re
 
 # function for Huggingface API calls
 def query(payload, model_path, headers):
@@ -10,24 +12,31 @@ def query(payload, model_path, headers):
         else:
             # Not connected to internet maybe?
             print('Unsuccessful request, status code '+ str(response.status_code))
+            print(response.json()) #debug only
+            if response.status_code==404:
+                print('Are you connected to the internet?')
+                print(API_URL)
+                break
             if response.status_code==400:
                 print(headers)
-                print(payload)
                 break
-            time.sleep(3)
+            if response.status_code==503:
+                time.sleep(response.json()['estimated_time'])
+            else:
+                print(payload)
     return response.json()
 
 def generate_text(prompt, model_path, text_generation_parameters, headers):
-    API_URL = "https://api-inference.huggingface.co/models/" + model_path
     start_time = time.time()
     payload = {"inputs": prompt, "parameters": text_generation_parameters}
-    output_list = query(payload, API_URL, headers)
+    output_list = query(payload, model_path, headers)
     end_time = time.time()
     duration = round(end_time - start_time, 1)
     print(f'{len(output_list)} sample(s) of text generated in {duration} seconds.')
-    if output_list:
+    if output_list and 'generated_text' in output_list[0].keys():
         return(output_list[0]['generated_text'])
     else:
+        print(output_list)
         return('')
 
 def clean_text(generated_text):
@@ -46,7 +55,7 @@ def clean_text(generated_text):
         truncate = generated_text.rfind(' ')
         if truncate>-1:
             cleanStr = generated_text[:truncate+1]
-    if not cleanStr or negative_keyword_matches(cleanStr):
+    if not cleanStr:
         print('Bad generation')
     return cleanStr
 

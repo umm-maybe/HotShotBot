@@ -4,8 +4,6 @@ import json
 import requests
 import hf_utils
 
-from utils import ROOT_DIR
-
 class ToxicityHelper():
 
     # this version uses the hitomi-team toxicity classifier
