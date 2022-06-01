@@ -331,10 +331,6 @@ class reddit_bot:
                             self.generate_reply(comment)
                         else:
                             print("Comment not selected for reply, skipping...")
-            # try:
-            # except:
-            #     print('Error reading comments, are you connected to the Internet?')
-            #     time.sleep(60)
 
     def submission_loop(self):
         while (self.config['post_frequency']>0):
