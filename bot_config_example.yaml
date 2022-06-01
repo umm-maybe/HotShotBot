@@ -9,7 +9,7 @@ reddit_ID_var: "IAMA_ID"
 reddit_secret_var: "IAMA_SECRET"
 HF_key_var: "HF_BEARER_ID"
 # separate GPT-2 model for posts with SSI-style tagging
-post_textgen_model: "Colby/IAmA_GPT2"
+post_textgen_model: "umm-maybe/IAmA_GPT2"
 # set to negative or zero for no posts
 post_frequency: 0
 reply_textgen_model: "EleutherAI/gpt-j-6B"

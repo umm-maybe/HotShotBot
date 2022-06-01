@@ -89,6 +89,19 @@ class reddit_bot:
         self.SSI = TaggingMixin() # handler for legacy SSI tagging functions
         self.detox = ToxicityHelper(self.HF_key,{'nsfw': 0.9, 'hate': 0.9, 'threat': 0.9})
         self.negative_keywords = _negative_keywords + self.config['negative_keywords']
+        self.comments_seen = 0
+        self.posts_seen = 0
+        self.posts_made = 0
+        self.comments_made = 0
+
+    def report_status(self):
+        status = {}
+        status['posts_seen'] = self.posts_seen
+        status['comments_seen'] = self.comments_seen
+        status['posts_made'] = self.posts_made
+        status['comments_made'] = self.comments_made
+        status['percent'] = round(100*(self.tally/self.config['character_budget']))
+        print(" READ: post={posts_seen}\treply={comments_seen}\t| WRITE: post={posts_made}\treply={comments_made}\t| SPEND={percent}%".format(**status), end="\r", flush=True)
 
     def bad_keyword(self,text):
         return [keyword for keyword in self.negative_keywords if re.search(r"\b{}\b".format(keyword), text, re.IGNORECASE)]
@@ -112,6 +125,7 @@ class reddit_bot:
         prompt = '<|soss'
         if self.check_budget(prompt):
             self.tally += len(prompt)
+            self.report_status()
             print("Generating a post on r/"+self.sub.display_name)
             post_params = self.config['text_generation_parameters']
             post_params['return_full_text'] = True
@@ -120,6 +134,7 @@ class reddit_bot:
             if generated_text:
                 if self.check_budget(generated_text) and words_below(generated_text,500):
                     self.tally += len(generated_text)
+                    self.report_status()
                     if self.detox.text_above_toxicity_threshold(generated_text):
                         print("Generated text failed toxicity check, discarded.")
                     else:
@@ -129,6 +144,8 @@ class reddit_bot:
                             if post['title'] and post['selftext']:
                                 submission = self.sub.submit(title=post['title'],selftext=post['selftext'])
                                 print("Post successful!")
+                                self.posts_made += 1
+                                self.report_status()
                             else:
                                 print("Either title or selftext is missing!")
                         else:
@@ -165,6 +182,7 @@ class reddit_bot:
         prompt = '\n'.join([self.config['bot_backstory'],prompt])
         if self.check_budget(prompt) and words_below(prompt, 1000):
             self.tally += len(prompt)
+            self.report_status()
             print(f"PROMPT: {prompt}")
             reply_params = self.config['text_generation_parameters']
             reply_params['return_full_text'] = False
@@ -173,9 +191,12 @@ class reddit_bot:
             if cleanStr:
                 if self.check_budget(cleanStr) and words_below(cleanStr,500):
                     self.tally += len(cleanStr)
+                    self.report_status()
                     if not self.detox.text_above_toxicity_threshold(cleanStr):
                         reply = comment.reply(body=cleanStr)
                         print("Reply successful!")
+                        self.comments_made += 1
+                        self.report_status()
                     else:
                         print("Text is toxic, skipping...")
                 else:
@@ -198,6 +219,7 @@ class reddit_bot:
         prompt = '\n'.join([self.config['bot_backstory'],prompt])
         if self.check_budget(prompt) and words_below(prompt,1000):
             self.tally += len(prompt)
+            self.report_status()
             print(f"PROMPT: {prompt}")
             reply_params = self.config['text_generation_parameters']
             reply_params['return_full_text'] = False
@@ -206,9 +228,12 @@ class reddit_bot:
             if cleanStr:
                 if self.check_budget(cleanStr) and words_below(cleanStr):
                     self.tally += len(cleanStr)
+                    self.report_status()
                     if not self.detox.text_above_toxicity_threshold(cleanStr):
                         reply = comment.reply(cleanStr)
                         print("Comment successful!")
+                        self.comments_made += 1
+                        self.report_status()
                     else:
                         print("Text is toxic, skipping...")
                 else:
@@ -226,6 +251,8 @@ class reddit_bot:
                 # decide whether to reply to a post
                 if not submission:
                     continue
+                self.posts_seen += 1
+                self.report_status()
                 if submission.author == self.me:
                     continue
                 if self.bad_keyword(submission.title) or (submission.is_self and self.bad_keyword(submission.selftext)):
@@ -260,6 +287,8 @@ class reddit_bot:
             for comment in self.sub.stream.comments(pause_after=0,skip_existing=True):
                 if not comment:
                     continue
+                self.comments_seen += 1
+                self.report_status()
                 if comment.author == self.me:
                     continue
                 if self.bad_keyword(comment.body):
@@ -295,6 +324,7 @@ class reddit_bot:
                     prompt = comment_parent.body + "<|endoftext|>" + comment.body
                     if self.check_budget(prompt) and words_below(prompt, 1000):
                         self.tally += len(prompt)
+                        self.report_status()
                         payload = {"inputs": prompt}
                         score = query(payload, "microsoft/DialogRPT-width", self.headers)[0][0]['score']
                         if score >= self.config['min_reply_score']:
@@ -309,15 +339,12 @@ class reddit_bot:
     def submission_loop(self):
         while (self.config['post_frequency']>0):
             post = self.make_post()
-            # try:
-            # except:
-            #     print('Error making a post, are you connected to the Internet?')
-            #     time.sleep(60)
             if post:
                 time.sleep(self.config['post_frequency']*3600)
         print("No submissions scheduled, exiting")
 
     def run(self):
+        print("Bot named {} running on {}".format(self.config['bot_username'],self.config['bot_subreddit']))
         print("Launching submission writer")
         self.submission_writer.start()
         # don't bother running submission reader if bot is followup-only
@@ -328,6 +355,7 @@ class reddit_bot:
             print("Bot set to follow-up only, will not read submissions.")
         print("Launching comment reader")
         self.comment_reader.start()
+        self.report_status()
 
 def main():
     bot = reddit_bot("bot_config.yaml")
