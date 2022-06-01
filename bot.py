@@ -101,7 +101,7 @@ class reddit_bot:
         status['posts_made'] = self.posts_made
         status['comments_made'] = self.comments_made
         status['percent'] = round(100*(self.tally/self.config['character_budget']))
-        print(" READ: post={posts_seen}\treply={comments_seen}\t| WRITE: post={posts_made}\treply={comments_made}\t| SPEND={percent}%".format(**status), end="\r", flush=True)
+        print("READ: post={posts_seen}\treply={comments_seen}\t| WRITE: post={posts_made}\treply={comments_made}\t| SPEND={percent}%".format(**status))
 
     def bad_keyword(self,text):
         return [keyword for keyword in self.negative_keywords if re.search(r"\b{}\b".format(keyword), text, re.IGNORECASE)]
@@ -252,7 +252,6 @@ class reddit_bot:
                 if not submission:
                     continue
                 self.posts_seen += 1
-                self.report_status()
                 if submission.author == self.me:
                     continue
                 if self.bad_keyword(submission.title) or (submission.is_self and self.bad_keyword(submission.selftext)):
@@ -288,7 +287,6 @@ class reddit_bot:
                 if not comment:
                     continue
                 self.comments_seen += 1
-                self.report_status()
                 if comment.author == self.me:
                     continue
                 if self.bad_keyword(comment.body):
@@ -351,7 +349,6 @@ class reddit_bot:
             print("Bot set to follow-up only, will not read submissions.")
         print("Launching comment reader")
         self.comment_reader.start()
-        self.report_status()
 
 def main():
     bot = reddit_bot("bot_config.yaml")
