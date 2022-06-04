@@ -11,7 +11,6 @@ from datetime import datetime, date
 import os, sys
 from hf_utils import generate_text, clean_text, query
 from tagging_mixin import TaggingMixin
-from toxicity_helper import ToxicityHelper
 import yaml
 import threading
 from nltk import word_tokenize
@@ -87,7 +86,6 @@ class reddit_bot:
         self.today = date.today()
         self.tally = 0 # to compare with daily input character budget
         self.SSI = TaggingMixin() # handler for legacy SSI tagging functions
-        self.detox = ToxicityHelper(self.HF_key,{'nsfw': 0.9, 'hate': 0.9, 'threat': 0.9})
         self.negative_keywords = _negative_keywords + self.config['negative_keywords']
         self.comments_seen = 0
         self.posts_seen = 0
@@ -105,6 +103,18 @@ class reddit_bot:
 
     def bad_keyword(self,text):
         return [keyword for keyword in self.negative_keywords if re.search(r"\b{}\b".format(keyword), text, re.IGNORECASE)]
+
+    def is_toxic(self,text):
+        payload = {"inputs": text}
+        output_list = query(payload, "SkolkovoInstitute/roberta_toxicity_classifier", self.headers)
+        if not output_list:
+            print("Could not evaluate toxicity!")
+            return False
+        toxicity_score = output_list[0][1]['score']
+        if toxicity_score>=self.config['toxicity_threshold']:
+            return True
+        else:
+            return False
 
     def check_budget(self,string):
         # check to see if an input string would exceed character budget
@@ -132,10 +142,10 @@ class reddit_bot:
             generated_text = generate_text(prompt,self.config['post_textgen_model'],post_params,self.headers)
             print(f"GENERATED: {generated_text}")
             if generated_text:
-                if self.check_budget(generated_text) and words_below(generated_text,500):
+                if self.check_budget(generated_text) and words_below(generated_text,500) and not self.bad_keyword(generated_text):
                     self.tally += len(generated_text)
                     self.report_status()
-                    if self.detox.text_above_toxicity_threshold(generated_text):
+                    if self.is_toxic(generated_text):
                         print("Generated text failed toxicity check, discarded.")
                     else:
                         # To do: image post logic, text-to-image models
@@ -192,7 +202,7 @@ class reddit_bot:
                 if self.check_budget(cleanStr) and words_below(cleanStr,500):
                     self.tally += len(cleanStr)
                     self.report_status()
-                    if not self.detox.text_above_toxicity_threshold(cleanStr):
+                    if not self.is_toxic(cleanStr):
                         reply = comment.reply(body=cleanStr)
                         print("Reply successful!")
                         self.comments_made += 1
@@ -229,7 +239,7 @@ class reddit_bot:
                 if self.check_budget(cleanStr) and words_below(cleanStr):
                     self.tally += len(cleanStr)
                     self.report_status()
-                    if not self.detox.text_above_toxicity_threshold(cleanStr):
+                    if not self.is_toxic(cleanStr):
                         reply = comment.reply(cleanStr)
                         print("Comment successful!")
                         self.comments_made += 1
@@ -324,11 +334,15 @@ class reddit_bot:
                         self.tally += len(prompt)
                         self.report_status()
                         payload = {"inputs": prompt}
-                        score = query(payload, "microsoft/DialogRPT-width", self.headers)[0][0]['score']
-                        if score >= self.config['min_reply_score']:
-                            self.generate_reply(comment)
+                        results = query(payload, "microsoft/DialogRPT-width", self.headers)
+                        if results:
+                            score = results[0][0]['score']
+                            if score >= self.config['min_reply_score']:
+                                self.generate_reply(comment)
+                            else:
+                                print("Comment not selected for reply, skipping...")
                         else:
-                            print("Comment not selected for reply, skipping...")
+                            print("Reply probability check failed!")
 
     def submission_loop(self):
         while (self.config['post_frequency']>0):

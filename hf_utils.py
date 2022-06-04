@@ -30,8 +30,8 @@ def generate_text(prompt, model_path, text_generation_parameters, headers):
     output_list = query(payload, model_path, headers)
     end_time = time.time()
     duration = round(end_time - start_time, 1)
-    print(f'{len(output_list)} sample(s) of text generated in {duration} seconds.')
     if output_list and 'generated_text' in output_list[0].keys():
+        print(f'{len(output_list)} sample(s) of text generated in {duration} seconds.')
         return(output_list[0]['generated_text'])
     else:
         print(output_list)
