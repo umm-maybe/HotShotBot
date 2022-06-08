@@ -14,6 +14,7 @@ from tagging_mixin import TaggingMixin
 import yaml
 import threading
 from nltk import word_tokenize
+from googleapiclient import discovery
 
 _default_negative_keywords = [
     ('ar', 'yan'), ('ausch, witz'),
@@ -67,6 +68,7 @@ class reddit_bot:
             sys.exit()
         self.HF_key = os.environ[self.config['HF_key_var']]
         self.headers = {"Authorization": "Bearer "+self.HF_key}
+        self.Google_API_key = os.environ[self.config['Google_API_key_var']]
         self.config['reddit_pass'] = os.environ[self.config['reddit_pass_var']]
         self.config['reddit_ID'] = os.environ[self.config['reddit_ID_var']]
         self.config['reddit_secret'] = os.environ[self.config['reddit_secret_var']]
@@ -87,6 +89,13 @@ class reddit_bot:
         self.tally = 0 # to compare with daily input character budget
         self.SSI = TaggingMixin() # handler for legacy SSI tagging functions
         self.negative_keywords = _negative_keywords + self.config['negative_keywords']
+        self.perspective = discovery.build(
+         "commentanalyzer",
+         "v1alpha1",
+         developerKey=self.Google_API_key,
+         discoveryServiceUrl="https://commentanalyzer.googleapis.com/$discovery/rest?version=v1alpha1",
+         static_discovery=False,
+        )
         self.comments_seen = 0
         self.posts_seen = 0
         self.posts_made = 0
@@ -105,13 +114,14 @@ class reddit_bot:
         return [keyword for keyword in self.negative_keywords if re.search(r"\b{}\b".format(keyword), text, re.IGNORECASE)]
 
     def is_toxic(self,text):
-        payload = {"inputs": text}
-        output_list = query(payload, "SkolkovoInstitute/roberta_toxicity_classifier", self.headers)
-        if not output_list:
-            print("Could not evaluate toxicity!")
-            return False
-        toxicity_score = output_list[0][1]['score']
-        if toxicity_score>=self.config['toxicity_threshold']:
+        analyze_request = {
+         'comment': { 'text': text },
+         'requestedAttributes': {'TOXICITY': {}},
+         'languages': 'en'
+        }
+        response = self.perspective.comments().analyze(body=analyze_request).execute()
+        score = response['attributeScores']['TOXICITY']['summaryScore']['value']
+        if score>self.config['toxicity_threshold']:
             return True
         else:
             return False
@@ -129,6 +139,34 @@ class reddit_bot:
         else:
             return False
 
+    def best_text(self,context,stringlist):
+        # select highest-scoring non-toxic generated text from a list
+        maxscore = 0
+        besttext = ''
+        for textstring in stringlist:
+            cleanStr = clean_text(textstring)
+            if not cleanStr:
+                continue
+            if self.is_toxic(cleanStr):
+                score = 0
+            else:
+                prompt = context + '<|endoftext|>' + cleanStr
+                if self.check_budget(prompt) and words_below(prompt,500):
+                    self.tally += len(prompt)
+                    self.report_status()
+                else:
+                    print("Text too big for re-ranking model!")
+                    continue
+                payload = {"inputs": prompt}
+                results = query(payload, "microsoft/DialogRPT-updown", self.headers)
+                if results:
+                    score = results[0][0]['score']
+                else:
+                    score = 0
+            if score > maxscore:
+                besttext = cleanStr
+        return besttext
+
     def make_post(self):
         submission = None
         # ssi-bot style GPT-2 model text post generation
@@ -139,12 +177,11 @@ class reddit_bot:
             print("Generating a post on r/"+self.sub.display_name)
             post_params = self.config['text_generation_parameters']
             post_params['return_full_text'] = True
-            generated_text = generate_text(prompt,self.config['post_textgen_model'],post_params,self.headers)
-            print(f"GENERATED: {generated_text}")
-            if generated_text:
-                if self.check_budget(generated_text) and words_below(generated_text,500) and not self.bad_keyword(generated_text):
-                    self.tally += len(generated_text)
-                    self.report_status()
+            stringlist = generate_text(prompt,self.config['post_textgen_model'],post_params,self.headers)
+            if stringlist:
+                generated_text = stringlist[0]
+                print(f"GENERATED: {generated_text}")
+                if not self.bad_keyword(generated_text):
                     if self.is_toxic(generated_text):
                         print("Generated text failed toxicity check, discarded.")
                     else:
@@ -196,21 +233,11 @@ class reddit_bot:
             print(f"PROMPT: {prompt}")
             reply_params = self.config['text_generation_parameters']
             reply_params['return_full_text'] = False
-            cleanStr = clean_text(generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers))
-            print(f"GENERATED: {cleanStr}")
+            cleanStr = self.best_text(comment.body,generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers))
             if cleanStr:
-                if self.check_budget(cleanStr) and words_below(cleanStr,500):
-                    self.tally += len(cleanStr)
-                    self.report_status()
-                    if not self.is_toxic(cleanStr):
-                        reply = comment.reply(body=cleanStr)
-                        print("Reply successful!")
-                        self.comments_made += 1
-                        self.report_status()
-                    else:
-                        print("Text is toxic, skipping...")
-                else:
-                    print("Unable to check toxicity, skipping...")
+                print(f"GENERATED: {cleanStr}")
+                reply = comment.reply(body=cleanStr)
+                print("Reply successful!")
             else:
                 print("Generation failed, skipping...")
         else:
@@ -233,21 +260,25 @@ class reddit_bot:
             print(f"PROMPT: {prompt}")
             reply_params = self.config['text_generation_parameters']
             reply_params['return_full_text'] = False
-            cleanStr = clean_text(generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers))
+            stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
             print(f"GENERATED: {cleanStr}")
-            if cleanStr:
-                if self.check_budget(cleanStr) and words_below(cleanStr):
-                    self.tally += len(cleanStr)
-                    self.report_status()
-                    if not self.is_toxic(cleanStr):
-                        reply = comment.reply(cleanStr)
-                        print("Comment successful!")
-                        self.comments_made += 1
+            if stringlist:
+                cleanStr = clean_text(stringlist[0])
+                if cleanStr:
+                    if self.check_budget(cleanStr) and words_below(cleanStr):
+                        self.tally += len(cleanStr)
                         self.report_status()
+                        if not self.is_toxic(cleanStr):
+                            reply = comment.reply(cleanStr)
+                            print("Comment successful!")
+                            self.comments_made += 1
+                            self.report_status()
+                        else:
+                            print("Text is toxic, skipping...")
                     else:
-                        print("Text is toxic, skipping...")
+                        print("Unable to check toxicity, skipping...")
                 else:
-                    print("Unable to check toxicity, skipping...")
+                    print("Invalid generation, skipping...")
             else:
                 print("Generation failed, skipping...")
         else:

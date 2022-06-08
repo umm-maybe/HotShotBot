@@ -26,16 +26,19 @@ def query(payload, model_path, headers):
 
 def generate_text(prompt, model_path, text_generation_parameters, headers):
     start_time = time.time()
-    payload = {"inputs": prompt, "parameters": text_generation_parameters}
+    options = {'use_cache': False, 'wait_for_model': True}
+    payload = {"inputs": prompt, "parameters": text_generation_parameters, "options": options}
     output_list = query(payload, model_path, headers)
     end_time = time.time()
     duration = round(end_time - start_time, 1)
+    stringlist = []
     if output_list and 'generated_text' in output_list[0].keys():
         print(f'{len(output_list)} sample(s) of text generated in {duration} seconds.')
-        return(output_list[0]['generated_text'])
+        for gendict in output_list:
+            stringlist.append(gendict['generated_text'])
     else:
         print(output_list)
-        return('')
+    return(stringlist)
 
 def clean_text(generated_text):
     truncate = 0
