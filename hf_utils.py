@@ -59,6 +59,4 @@ def clean_text(generated_text):
     if not cleanStr:
         print('Bad generation')
     return cleanStr
-
-def rank_text(candidate_texts, positive_keywords, reranking_model):
-    return ranked_candidates
+    

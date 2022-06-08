@@ -108,7 +108,7 @@ class reddit_bot:
         status['posts_made'] = self.posts_made
         status['comments_made'] = self.comments_made
         status['percent'] = round(100*(self.tally/self.config['character_budget']))
-        print("READ: post={posts_seen}\treply={comments_seen}\t| WRITE: post={posts_made}\treply={comments_made}\t| SPEND={percent}%".format(**status))
+        print("READ: submissions={posts_seen}\tcomment={comments_seen}\t| WRITE: post={posts_made}\treply={comments_made}\t| SPEND={percent}%".format(**status))
 
     def bad_keyword(self,text):
         return [keyword for keyword in self.negative_keywords if re.search(r"\b{}\b".format(keyword), text, re.IGNORECASE)]
@@ -179,26 +179,27 @@ class reddit_bot:
             post_params['return_full_text'] = True
             stringlist = generate_text(prompt,self.config['post_textgen_model'],post_params,self.headers)
             if stringlist:
-                generated_text = stringlist[0]
-                print(f"GENERATED: {generated_text}")
-                if not self.bad_keyword(generated_text):
-                    if self.is_toxic(generated_text):
-                        print("Generated text failed toxicity check, discarded.")
-                    else:
-                        # To do: image post logic, text-to-image models
-                        post = self.SSI.extract_submission_from_generated_text(generated_text)
-                        if post:
-                            if post['title'] and post['selftext']:
-                                submission = self.sub.submit(title=post['title'],selftext=post['selftext'])
-                                print("Post successful!")
-                                self.posts_made += 1
-                                self.report_status()
-                            else:
-                                print("Either title or selftext is missing!")
+                for generated_text in stringlist:
+                    print(f"GENERATED: {generated_text}")
+                    if not self.bad_keyword(generated_text):
+                        if self.is_toxic(generated_text):
+                            print("Generated text failed toxicity check, discarded.")
                         else:
-                            print("Failed to extract post from generated text!")
-                else:
-                    print("Too many characters in generated text, discarded.")
+                            # To do: image post logic, text-to-image models
+                            post = self.SSI.extract_submission_from_generated_text(generated_text)
+                            if post:
+                                if post['title'] and post['selftext']:
+                                    submission = self.sub.submit(title=post['title'],selftext=post['selftext'])
+                                    print("Post successful!")
+                                    self.posts_made += 1
+                                    self.report_status()
+                                    break
+                                else:
+                                    print("Either title or selftext is missing!")
+                            else:
+                                print("Failed to extract post from generated text!")
+                    else:
+                        print("Bad keywords in generated text, discarded.")
             else:
                 print("Text generation failed!")
         else:
@@ -227,7 +228,7 @@ class reddit_bot:
             else:
                 thread_item = thread_item.parent()
         prompt = '\n'.join([self.config['bot_backstory'],prompt])
-        if self.check_budget(prompt) and words_below(prompt, 1000):
+        if self.check_budget(prompt) and words_below(prompt, 500):
             self.tally += len(prompt)
             self.report_status()
             print(f"PROMPT: {prompt}")
@@ -254,7 +255,7 @@ class reddit_bot:
         prompt = 'Comment by u/{}: "'.format(self.config['bot_username'])
         prompt = '\n'.join(['Post by u/{} titled "{}": "{}"'.format(thread_OP,post_title,post_body),prompt])
         prompt = '\n'.join([self.config['bot_backstory'],prompt])
-        if self.check_budget(prompt) and words_below(prompt,1000):
+        if self.check_budget(prompt) and words_below(prompt,500):
             self.tally += len(prompt)
             self.report_status()
             print(f"PROMPT: {prompt}")
@@ -263,22 +264,19 @@ class reddit_bot:
             stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
             print(f"GENERATED: {cleanStr}")
             if stringlist:
-                cleanStr = clean_text(stringlist[0])
-                if cleanStr:
-                    if self.check_budget(cleanStr) and words_below(cleanStr):
-                        self.tally += len(cleanStr)
-                        self.report_status()
+                for generated_text in stringlist:
+                    cleanStr = clean_text(generated_text)
+                    if cleanStr:
                         if not self.is_toxic(cleanStr):
                             reply = comment.reply(cleanStr)
                             print("Comment successful!")
                             self.comments_made += 1
                             self.report_status()
+                            break
                         else:
                             print("Text is toxic, skipping...")
                     else:
-                        print("Unable to check toxicity, skipping...")
-                else:
-                    print("Invalid generation, skipping...")
+                        print("Invalid generation, skipping...")
             else:
                 print("Generation failed, skipping...")
         else:
