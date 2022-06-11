@@ -175,7 +175,7 @@ class reddit_bot:
             self.tally += len(prompt)
             self.report_status()
             print("Generating a post on r/"+self.sub.display_name)
-            post_params = self.config['text_generation_parameters']
+            post_params = self.config['post_textgen_parameters']
             post_params['return_full_text'] = True
             stringlist = generate_text(prompt,self.config['post_textgen_model'],post_params,self.headers)
             if stringlist:
@@ -189,7 +189,7 @@ class reddit_bot:
                             post = self.SSI.extract_submission_from_generated_text(generated_text)
                             if post:
                                 if post['title'] and post['selftext']:
-                                    submission = self.sub.submit(title=post['title'],selftext=post['selftext'])
+                                    submission = self.sub.submit(title=post['title'],selftext=post['selftext'],flair_id=self.config['post_flair'])
                                     print("Post successful!")
                                     self.posts_made += 1
                                     self.report_status()
@@ -232,8 +232,7 @@ class reddit_bot:
             self.tally += len(prompt)
             self.report_status()
             print(f"PROMPT: {prompt}")
-            reply_params = self.config['text_generation_parameters']
-            reply_params['return_full_text'] = False
+            reply_params = self.config['reply_textgen_parameters']
             cleanStr = self.best_text(comment.body,generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers))
             if cleanStr:
                 print(f"GENERATED: {cleanStr}")
@@ -259,8 +258,7 @@ class reddit_bot:
             self.tally += len(prompt)
             self.report_status()
             print(f"PROMPT: {prompt}")
-            reply_params = self.config['text_generation_parameters']
-            reply_params['return_full_text'] = False
+            reply_params = self.config['reply_textgen_parameters']
             stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
             print(f"GENERATED: {cleanStr}")
             if stringlist:
@@ -377,7 +375,7 @@ class reddit_bot:
         while (self.config['post_frequency']>0):
             post = self.make_post()
             if post:
-                time.sleep(self.config['post_frequency']*3600)
+                time.sleep(60*60*self.config['post_frequency'])
         print("No submissions scheduled, exiting")
 
     def run(self):

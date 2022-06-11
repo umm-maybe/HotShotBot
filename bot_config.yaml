@@ -1,17 +1,37 @@
-bot_username: # e.g. "IAmA-SSI-Bot"
-bot_subreddit: test # or "SubSimGPT2Interactive"
-bot_backstory: # e.g. 'The following is part of an "Ask Me Anything" thread on Reddit.'
+bot_username: "IAmA-SSI-Bot"
+bot_subreddit: "SubSimGPT2Interactive"
+bot_backstory: 'The following is part of an "Ask Me Anything" thread on Reddit.'
 # To support systems like repl.it, the following are "secrets"
 # so, instead of the actual values, enter the name of an environment variable where it's stored
-reddit_pass_var: # e.g. "IAMA_PASS"
-reddit_ID_var: # e.g. "IAMA_ID"
-reddit_secret_var: # e.g. "IAMA_SECRET"
-HF_key_var: # e.g. "HF_BEARER_ID"
+reddit_pass_var: "IAMA_PASS"
+reddit_ID_var: "IAMA_ID"
+reddit_secret_var: "IAMA_SECRET"
+HF_key_var: "HF_BEARER_ID"
+# For Perspective API toxicity checking
+Google_API_key_var: "GOOGLE_KEY"
+# schedule for posts.
+# loop will post when it turns to one of the desired times
+post_frequency: 24
 # separate GPT-2 model for posts with SSI-style tagging
-post_textgen_model: # e.g. "umm-maybe/IAmA_GPT2"
-# in hours; set to negative or zero for no posts
-post_frequency: # e.g. 24 for daily posts
+post_textgen_model: "umm-maybe/IAmA_GPT2"
+post_textgen_parameters:
+    max_new_tokens: 250 # cannot be more than 250, apparently
+    num_return_sequences: 2
+    temperature: 0.8
+    top_k: 40
+    repetition_penalty: 1.008
+    stop_token: '<|endoftext|>' # I hope there is stop token but I don't think so
+    return_full_text: True
+post_flair: 'ff1e3b8e-a518-11ea-b87f-0e2836404d8b'
 reply_textgen_model: "EleutherAI/gpt-j-6B"
+reply_textgen_parameters:
+    max_new_tokens: 250 # cannot be more than 250, apparently
+    num_return_sequences: 2
+    temperature: 0.8
+    top_k: 40
+    repetition_penalty: 1.008
+    stop_token: '<|endoftext|>' # I hope there is stop token but I don't think so
+    return_full_text: False
 # force reply to top-level comments
 force_top_reply: True
 # restrict replies to comments on own posts/replies
@@ -19,7 +39,7 @@ followup_only: True
 # base probability of commenting on a post or top-level comment
 reply_chance: 0.1
 # OPTIONAL, strings that automatically trigger a reply
-trigger_words: # e.g. ['who','what','where','when','why','how','?']
+trigger_words: ['who','what','where','when','why','how','?']
 # increase in probability of a response if triggered (per word)
 trigger_boost: 0.1
 # minimum reply model (microsoft/DialogRPT-width) score to reply to comment
@@ -30,22 +50,9 @@ min_reply_score: 0.5
 max_levels: 6
 # maximum number of input characters per day - to manage Huggingface budgets
 # default below is set so as to keep one bot within free plan limits
-character_budget: 1000
-# Text generation parameters
-text_generation_parameters:
-    max_new_tokens: 250 # cannot be more than 250, apparently
-    num_return_sequences: 1
-    temperature: 0.8
-    top_k: 40
-    repetition_penalty: 1.008
-    stop_token: '<|endoftext|>' # I hope there is stop token but I don't think so
-    return_full_text: False
-    use_cache: False
-# OPTIONAL, keywords that block a reply (ssi-bot default keywords included in script)
-negative_keywords: []
+character_budget: 30000
+# OPTIONAL, keywords that block a post or reply (ssi-bot default keywords included in script)
+negative_keywords: ['AMA Request','My 5 Questions:']
 # toxicity model rejection criteria
-# minimum probability that a text classifies as NSFW, hate speech, or a threat to reject generation
-threshold_map:
-    nsfw: 0.9
-    hate: 0.9
-    threat: 0.9
+# minimum probability that a text classifies as toxic
+toxicity_threshold: 0.9
