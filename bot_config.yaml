@@ -9,6 +9,8 @@ reddit_secret_var: "IAMA_SECRET"
 HF_key_var: "HF_BEARER_ID"
 # For Perspective API toxicity checking
 Google_API_key_var: "GOOGLE_KEY"
+# For image recognition
+azure_token_var: "AZURE_KEY"
 # schedule for posts.
 # loop will post when it turns to one of the desired times
 post_frequency: 24

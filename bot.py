@@ -72,6 +72,7 @@ class reddit_bot:
         self.config['reddit_pass'] = os.environ[self.config['reddit_pass_var']]
         self.config['reddit_ID'] = os.environ[self.config['reddit_ID_var']]
         self.config['reddit_secret'] = os.environ[self.config['reddit_secret_var']]
+        self.config['azure_token'] = os.environ[self.config['azure_token_var']]
         self.reddit = praw.Reddit(
             user_agent=self.config['bot_username'],
             client_id=self.config['reddit_ID'],
@@ -167,6 +168,34 @@ class reddit_bot:
                 besttext = cleanStr
         return besttext
 
+    def describe_image(self,url):
+        # Settings below for Azure vision
+        headers = {
+            # Request headers
+            'Content-Type': 'application/json',
+            'Ocp-Apim-Subscription-Key': self.config['azure_token']
+        }
+
+        params = urllib.parse.urlencode({
+            # Request parameters
+            'maxCandidates': '1',
+            'language': 'en',
+            'model-version': 'latest',
+        })
+        caption = ''
+        try:
+            conn = http.client.HTTPSConnection('cb-vision-test.cognitiveservices.azure.com')
+            conn.request("POST", "/vision/v3.2/describe?%s" % params, '{"url":"'+url+'"}', headers)
+            response = conn.getresponse()
+            data = json.loads(response.read())
+            #print(data)
+            caption = 'A picture of ' + data['description']['captions'][0]['text']
+            conn.close()
+            print("Caption: "+caption)
+        except Exception as e:
+            print(e)
+        return caption
+
     def make_post(self):
         submission = None
         # ssi-bot style GPT-2 model text post generation
@@ -250,9 +279,13 @@ class reddit_bot:
         thread_OP = submission.author.name
         post_title = submission.title
         print("Commenting on submission:\n"+post_title)
-        post_body = comment.submission.selftext
         prompt = 'Comment by u/{}: "'.format(self.config['bot_username'])
-        prompt = '\n'.join(['Post by u/{} titled "{}": "{}"'.format(thread_OP,post_title,post_body),prompt])
+        if submission.is_self:
+            post_body = comment.submission.selftext
+            prompt = '\n'.join(['Post by u/{} titled "{}": "{}"'.format(thread_OP,post_title,post_body),prompt])
+        else:
+            alt_text = self.describe_image(submission.url)
+            prompt = '\n'.join(['Image post by u/{} titled "{}": {}'.format(thread_OP,post_title,alt_text),prompt])
         prompt = '\n'.join([self.config['bot_backstory'],prompt])
         if self.check_budget(prompt) and words_below(prompt,500):
             self.tally += len(prompt)
@@ -392,7 +425,7 @@ class reddit_bot:
         self.comment_reader.start()
 
 def main():
-    bot = reddit_bot("bot_config.yaml")
+    bot = reddit_bot(sys.argv[1]) #"bot_config.yaml"
     bot.run()
 
 if __name__ == "__main__":
