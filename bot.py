@@ -1,7 +1,7 @@
 ### Script for one-shot Reddit bots using Huggingface models
 ## Unlike ssi-bot, these are *not* necessarily finetuned on data from any subreddit
 ## Rather, they are prompted with a "character" to play (name + backstory)
-
+import requests
 import praw
 import csv
 import random
@@ -15,6 +15,8 @@ import yaml
 import threading
 from nltk import word_tokenize
 from googleapiclient import discovery
+import http.client, urllib.request, urllib.parse, urllib.error, base64
+import json
 
 _default_negative_keywords = [
     ('ar', 'yan'), ('ausch, witz'),
@@ -68,11 +70,12 @@ class reddit_bot:
             sys.exit()
         self.HF_key = os.environ[self.config['HF_key_var']]
         self.headers = {"Authorization": "Bearer "+self.HF_key}
+        self.DeepAI_API_key = os.environ[self.config['deepai_api_key_var']]
         self.Google_API_key = os.environ[self.config['Google_API_key_var']]
+        self.Azure_token = os.environ[self.config['azure_token_var']]
         self.config['reddit_pass'] = os.environ[self.config['reddit_pass_var']]
         self.config['reddit_ID'] = os.environ[self.config['reddit_ID_var']]
         self.config['reddit_secret'] = os.environ[self.config['reddit_secret_var']]
-        self.config['azure_token'] = os.environ[self.config['azure_token_var']]
         self.reddit = praw.Reddit(
             user_agent=self.config['bot_username'],
             client_id=self.config['reddit_ID'],
@@ -173,7 +176,7 @@ class reddit_bot:
         headers = {
             # Request headers
             'Content-Type': 'application/json',
-            'Ocp-Apim-Subscription-Key': self.config['azure_token']
+            'Ocp-Apim-Subscription-Key': self.Azure_token
         }
 
         params = urllib.parse.urlencode({
@@ -183,23 +186,45 @@ class reddit_bot:
             'model-version': 'latest',
         })
         caption = ''
-        try:
-            conn = http.client.HTTPSConnection('cb-vision-test.cognitiveservices.azure.com')
-            conn.request("POST", "/vision/v3.2/describe?%s" % params, '{"url":"'+url+'"}', headers)
-            response = conn.getresponse()
-            data = json.loads(response.read())
-            #print(data)
-            caption = 'A picture of ' + data['description']['captions'][0]['text']
-            conn.close()
-            print("Caption: "+caption)
-        except Exception as e:
-            print(e)
+        # try:
+        conn = http.client.HTTPSConnection('cb-vision-test.cognitiveservices.azure.com')
+        conn.request("POST", "/vision/v3.2/describe?%s" % params, '{"url":"'+url+'"}', headers)
+        response = conn.getresponse()
+        data = json.loads(response.read())
+        #print(data)
+        caption = 'A picture of ' + data['description']['captions'][0]['text']
+        conn.close()
+        print("Caption: "+caption)
+        # except Exception as e:
+        #    print(e)
         return caption
+
+    def generate_image(self,prompt):
+        endpoint = 'https://hf.space/embed/multimodalart/latentdiffusion/+/api/predict/'
+        r = requests.post(url=endpoint, json={"data": [prompt,45,'256','256',1,1]})
+        r_json = r.json()
+        b = base64.b64decode(r_json["data"][0].split(",")[1])
+        with open("tmp.jpg", "wb") as outfile:
+            outfile.write(b)
+        # upscale API
+        r2 = requests.post(
+            "https://api.deepai.org/api/torch-srgan",
+            files={
+                'image': open('tmp.jpg', 'rb'),
+            },
+            headers={'api-key': self.DeepAI_API_key}
+        )
+        r2_json = r2.json()
+        url = r2_json['output_url']
+        return url
 
     def make_post(self):
         submission = None
         # ssi-bot style GPT-2 model text post generation
-        prompt = '<|soss'
+        if random.random()<self.config['linkpost_share']:
+            prompt = '<|sols'
+        else:
+            prompt = '<|soss'
         if self.check_budget(prompt):
             self.tally += len(prompt)
             self.report_status()
@@ -214,17 +239,17 @@ class reddit_bot:
                         if self.is_toxic(generated_text):
                             print("Generated text failed toxicity check, discarded.")
                         else:
-                            # To do: image post logic, text-to-image models
                             post = self.SSI.extract_submission_from_generated_text(generated_text)
                             if post:
-                                if post['title'] and post['selftext']:
+                                if prompt == '<|soss':
                                     submission = self.sub.submit(title=post['title'],selftext=post['selftext'],flair_id=self.config['post_flair'])
-                                    print("Post successful!")
-                                    self.posts_made += 1
-                                    self.report_status()
-                                    break
                                 else:
-                                    print("Either title or selftext is missing!")
+                                    post['url'] = self.generate_image(post['title'])
+                                    submission = self.sub.submit(title=post['title'],url=post['url'],flair_id=self.config['post_flair'])
+                                print("Post successful!")
+                                self.posts_made += 1
+                                self.report_status()
+                                break
                             else:
                                 print("Failed to extract post from generated text!")
                     else:
@@ -247,26 +272,44 @@ class reddit_bot:
             if thread_item.parent_id[:2]=='t3':
                 # next thing is the post, not a comment
                 # To do: image recognition/description for link posts
+                at_top = True
                 thread_post = comment.submission
+                thread_OP = thread_post.author.name
+                post_title = thread_post.title
                 if thread_post.is_self:
-                    thread_OP = thread_post.author.name
-                    post_title = thread_post.title
                     post_body = thread_post.selftext
                     prompt = '\n'.join(['Post by u/{} titled "{}": "{}"'.format(thread_OP,post_title,post_body),prompt])
+                else:
+                    alt_text = self.describe_image(thread_post.url)
+                    prompt = '\n'.join(['Image post by u/{} titled "{}": {}'.format(thread_OP,post_title,alt_text),prompt])
                 break
             else:
                 thread_item = thread_item.parent()
+        if not at_top:
+            print("Post not in prompt, discarding")
+            return reply
         prompt = '\n'.join([self.config['bot_backstory'],prompt])
         if self.check_budget(prompt) and words_below(prompt, 500):
             self.tally += len(prompt)
             self.report_status()
             print(f"PROMPT: {prompt}")
             reply_params = self.config['reply_textgen_parameters']
-            cleanStr = self.best_text(comment.body,generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers))
-            if cleanStr:
-                print(f"GENERATED: {cleanStr}")
-                reply = comment.reply(body=cleanStr)
-                print("Reply successful!")
+            stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
+            if stringlist:
+                for generated_text in stringlist:
+                    cleanStr = clean_text(generated_text)
+                    if cleanStr:
+                        print(f"GENERATED: {cleanStr}")
+                        if not self.is_toxic(cleanStr):
+                            reply = comment.reply(body=cleanStr)
+                            print("Reply successful!")
+                            self.comments_made += 1
+                            self.report_status()
+                            break
+                        else:
+                            print("Text is toxic, skipping...")
+                    else:
+                        print("Invalid generation, skipping...")
             else:
                 print("Generation failed, skipping...")
         else:
@@ -293,11 +336,11 @@ class reddit_bot:
             print(f"PROMPT: {prompt}")
             reply_params = self.config['reply_textgen_parameters']
             stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
-            print(f"GENERATED: {cleanStr}")
             if stringlist:
                 for generated_text in stringlist:
                     cleanStr = clean_text(generated_text)
                     if cleanStr:
+                        print(f"GENERATED: {cleanStr}")
                         if not self.is_toxic(cleanStr):
                             reply = comment.reply(cleanStr)
                             print("Comment successful!")
@@ -325,6 +368,8 @@ class reddit_bot:
                 if submission.author == self.me:
                     continue
                 if self.bad_keyword(submission.title) or (submission.is_self and self.bad_keyword(submission.selftext)):
+                    continue
+                if self.config['linkpost_only'] and submission.is_self:
                     continue
                 already_replied = False
                 submission.comments.replace_more(limit=None)
@@ -358,6 +403,8 @@ class reddit_bot:
                     continue
                 self.comments_seen += 1
                 if comment.author == self.me:
+                    continue
+                if comment.submission.is_self and self.config['linkpost_only']:
                     continue
                 if self.bad_keyword(comment.body):
                     print("Bad keyword found, skipping...")
