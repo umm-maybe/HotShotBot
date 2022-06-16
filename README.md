@@ -1,7 +1,19 @@
 # Hot-Shot Bots
-This project is intended to provide a codebase for hybrid few-shot GPT Reddit bots to be run on bot-friendly subreddits (e.g. r/SubSimGPT2Interactive).  
+This project provides a codebase for hybrid GPT Reddit bots running on r/SubSimGPT2Interactive.  
 
-Whereas in the past SSI bots used GPT-2 models that had been fine-tuned on archives of data downloaded for one or more subreddits for all posts and replies, these bots use fine-tuned GPT-2 models *for posts only*.  Comments/replies are generated using the standard pretrained version of a larger language model (e.g. GPT-J) which is given a prompt including, as context: 1) a backstory describing the kind of Redditor making the reply, 2) the original post and 3) the comment thread.
+## TL;DR Feature List
+
+* Post generation using legacy fine-tuned GPT-2 SSI bots
+* Schedule posts at specific times each day rather than at a specified frequency
+* Few-shot comment generation using GPT-J (or any other text generation model hosted on the Huggingface Accelerated Inference API, e.g. GPT-Neo-X) with backstory specified by bot operator
+* Toxicity filtering using Perspective API and negative keywords
+* Image recognition using Microsoft Azure Vision
+* Image generation (latent diffusion model) and upscaling using DeepAI
+* Zero-shot text classification (bot will apply to posts and top-level comments related to topics you specify)
+* Comment reply prediction using DialogRPT
+* Full thread accumulation in comment context
+* Does not require Torch
+* No database - PRAW only
 
 ## Why this works
 Larger language models (meaning ones with billions of parameters, generally speaking) have seen so much text from across the Internet (and specifically Reddit) that the writing style you want is probably hiding within the parameter weights somewhere, and you can call upon that style to be activated using a well-structured prompt. In this case, we're prompting it with generated content from a smaller GPT-2 model that has been fine-tuned on the subreddits whose style we want to simulate.
@@ -16,7 +28,7 @@ For more background information on large language models and their few-shot lear
 * [GPT-J-6B: 6B JAX-Based Transformer](https://arankomatsuzaki.wordpress.com/2021/06/04/gpt-j/)
 
 ## Variants
-It is entirely possible to configure this type of bot to be "reply-only", in which case no fine-tuned GPT-2 model need ever be used.  The bot will never make posts, simply replying based upon its backstory and the post/comment thread to which it is commenting.
+It is entirely possible to configure this type of bot to be "reply-only", in which case no fine-tuned GPT-2 model need ever be used.  The bot will never make posts, simply commenting and replying based upon its backstory and the context of the thread in which it is commenting.
 
 It is also feasible, though probably unnecessary, to fine-tune GPT-J.  If you are interested in doing this, here is a guide which other people have followed with some success:
 
@@ -24,14 +36,14 @@ It is also feasible, though probably unnecessary, to fine-tune GPT-J.  If you ar
 ](https://github.com/kingoflolz/mesh-transformer-jax/blob/master/howto_finetune.md)
 
 ## Requirements
-To make the use of really large language models possible for plebian bot operators using lowly home servers and affordable computing cloud instances, we take advantage of the [Huggingface Accelerated CPU Inference API](https://huggingface.co/inference-api).  Anyone can [sign up](https://huggingface.co/join) and get access to 30,000 free input characters a month, which may not be much, but it's something.  Paid plans currently start at 1M characters a month for a price which is comparable to that of most VPS hosting providers charge for instances with 4GB RAM.
+To make the use of really large language models possible for plebian bot operators using lowly home servers and affordable computing cloud instances, we take advantage of the [Huggingface Accelerated CPU Inference API](https://huggingface.co/inference-api).  Anyone can [sign up](https://huggingface.co/join) and get access to 30,000 free input characters a month, which may not be much, but it's something.  Paid plans currently start at 1M characters a month for a price which is comparable to that which most VPS hosting providers charge for instances with 4GB RAM as typically needed to run local inference on GPT-2 models.
 
-Neither the actual Huggingface Transformers library, nor Torch are actually required to be installed, and you don't have to have access to a machine capable of running inference on the large language models being used.  A design decision was also made not to use any form of local database to duplicate data that Reddit already stores for us and makes available free of charge via PRAW.  Thus there are minimal disk read/writes, and minimal storage requirements (though maybe more network I/O than you might otherwise expect).
+This repo does not depend on the actual Huggingface Transformers library, nor Torch.  A design decision was also made not to use any form of local database to duplicate data that Reddit already stores for us and makes available free of charge via PRAW.  Thus there are minimal disk read/writes, and minimal storage requirements (though maybe more network I/O than you might otherwise expect).  This code has been successfully tested on a Raspberry Pi 4, for example.
 
 ## Notes
 A [Dialog Ranking Pretrained Transformer](https://huggingface.co/microsoft/DialogRPT-width) is used to decide whether to reply to comments.   
 
-The [Perspective API](https://perspectiveapi.com/) is used to prevent hateful, threatening, or lewd speech from being posted by the bot on Reddit.  It requires a Google account to set up.
+The [Perspective API](https://perspectiveapi.com/) is used to prevent hateful, threatening, or lewd speech from being posted on Reddit by the bot.  It requires a Google account to set up.
 
 Microsoft Azure is used for image recognition.  Image generation is also supported; DeepAI is used for upscaling.
 
@@ -48,15 +60,13 @@ Clone this repository to the machine from which you wish to run your bot.  Creat
 All parameters are set in a YAML file.  An example named `bot_config_example.yaml` has been provided.  Here are some tips on setting it up:
 
 * Environment variables must be created on your system to store the Reddit password, ID and secret for your bot, as well as your Huggingface API key (which can be obtained by visiting [this link](https://huggingface.co/settings/tokens)).  Reference the names of these variables, rather than the actual values.
-* Negative keywords are used to block replies to a post or comment; a default list of these is incorporated within the bot code.
-* Positive keywords can be used to modify the baseline chance of your bot making a reply when the re-ranker does not apply (e.g. top-level comments).  Or, you can force the bot to respond to all top-level comments.
-* You can also limit your bot to only follow up on replies to posts or comments that it previously made, or comment only on linkpost threads.
+* Negative keywords are used to block replies to a post or comment; a default list of these is incorporated within the bot code.  You can also use this feature to filter out unwanted phrases in generated posts on-the-fly.
 * The `character_budget` is a daily limit on how many characters may be sent to the accelerated inference API; the bot will prevent itself from going above this number.  This is so that you don't unwittingly face massive charges from Huggingface.
 
 ## Operation
 Once your bot is configured, you can run it by using the following command: `python3 bot.py bot_config.yaml` where `bot_config.yaml` is whatever you named your config file (you can create multiple ones for different bots, if you want).
 
-At the bottom of the terminal (or `tmux` instance) in which the bot is running, there is a status report which should look something like the following:
+In your terminal (or `tmux` instance) in which the bot is running, a status report should occaisonally appear, looking something like the following:
 
 `READ: submissions=0	comment=0	| WRITE: post=0	reply=0	| SPEND=0%`
 
@@ -65,6 +75,9 @@ The values shown will be updated as the bot runs, so that you can verify that it
 ## Credits
 Some code was borrowed from the [ssi-bot](https://github.com/zacc/ssi-bot) repository created by [u/tateisukannanirase](https://www.reddit.com/user/tateisukannanirase/).
 
+The latent diffusion text-to-image generation model was created by [CompViz](https://github.com/CompVis) and made available on Gradio by [@multimodalart](https://twitter.com/multimodalart).
+
+The idea of using zero-shot classification to keep a bot on topic was drawn from the [rELIZA](https://github.com/FamiliarBreakfast/reliza) repository by [u/FamiliarBreakfast](https://www.reddit.com/user/FamiliarBreakfast/).
 
 
 

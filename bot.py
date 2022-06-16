@@ -229,7 +229,10 @@ class reddit_bot:
                 print("Failed to extract post from generated text!")
                 continue
             if prompt == '<|soss':
-                submission = self.sub.submit(title=post['title'],selftext=post['selftext'],flair_id=self.config['post_flair'])
+                if not post['selftext']:
+                    submission = self.sub.submit(title=post['title'],selftext='',flair_id=self.config['post_flair'])
+                else:
+                    submission = self.sub.submit(title=post['title'],selftext=post['selftext'],flair_id=self.config['post_flair'])
             else:
                 post['url'] = self.generate_image(post['title'])
                 submission = self.sub.submit(title=post['title'],url=post['url'],flair_id=self.config['post_flair'])
@@ -246,10 +249,9 @@ class reddit_bot:
         # accumulate comment thread for context
         at_top = False
         prompt = 'Reply by u/{}: "'.format(self.config['bot_username'])
-        thread_item = comment
         for level in range(self.config['max_levels']):
-            prompt = '\n'.join(['Comment by u/{}: "{}"'.format(thread_item.author.name, thread_item.body),prompt])
-            if thread_item.parent_id[:2]=='t3':
+            prompt = '\n'.join(['Comment by u/{}: "{}"'.format(comment.author.name, comment.body),prompt])
+            if comment.parent_id[:2]=='t3':
                 # next thing is the post, not a comment
                 # To do: image recognition/description for link posts
                 at_top = True
@@ -264,7 +266,7 @@ class reddit_bot:
                     prompt = '\n'.join(['Image post by u/{} titled "{}": {}'.format(thread_OP,post_title,alt_text),prompt])
                 break
             else:
-                thread_item = thread_item.parent()
+                comment = comment.parent()
         if not at_top:
             print("Post not in prompt, discarding")
             return None
@@ -327,7 +329,7 @@ class reddit_bot:
                 continue
             print(f"GENERATED: {cleanStr}")
             if not self.is_toxic(cleanStr):
-                reply = submission.reply(cleanStr)
+                reply = submission.reply(body=cleanStr)
                 print("Comment successful!")
                 self.comments_made += 1
                 self.report_status()
@@ -374,10 +376,12 @@ class reddit_bot:
                     continue
                 if not comment.was_comment:
                     # it's actually a message - don't reply; too expensive
+                    comment.mark_read()
                     continue
                 self.comments_seen += 1
                 if self.bad_keyword(comment.body):
                     print("Bad keyword found, skipping...")
+                    comment.mark_read()
                     continue
                 # not really sure this is necessary with skip_existing in place
                 already_replied = False
@@ -387,6 +391,7 @@ class reddit_bot:
                         already_replied = True
                         break
                 if already_replied:
+                    comment.mark_read()
                     continue
                 print('Checking comment "{}"'.format(comment.body))
                 if comment.parent_id[:2]=='t3':
@@ -395,7 +400,7 @@ class reddit_bot:
                     else:
                         print('Comment not selected for reply, skipping...')
                 else:
-                    prompt = comment_parent.body + "<|endoftext|>" + comment.body
+                    prompt = comment.parent().body + "<|endoftext|>" + comment.body
                     if self.check_budget(prompt) and words_below(prompt, 1000):
                         self.tally += len(prompt)
                         self.report_status()
@@ -409,6 +414,7 @@ class reddit_bot:
                                 print("Comment not selected for reply, skipping...")
                         else:
                             print("Reply probability check failed!")
+                comment.mark_read()
 
     def submission_loop(self):
         for t in self.config['post_schedule']:
