@@ -11,11 +11,12 @@ HF_key_var: "HF_BEARER_ID"
 Google_API_key_var: "GOOGLE_KEY"
 # For image recognition
 azure_token_var: "AZURE_KEY"
+# Azure vision endpoint
+azure_endpoint: 'cb-vision-test.cognitiveservices.azure.com'
 # For image upscaling
 deepai_api_key_var: "DEEPAI_KEY"
 # schedule for posts.
-# loop will post when it turns to one of the desired times
-post_frequency: 0
+post_schedule: ["15:00"]
 # share of posts which are linkposts (images)
 linkpost_share: 0
 # separate GPT-2 model for posts with SSI-style tagging
@@ -38,18 +39,16 @@ reply_textgen_parameters:
     repetition_penalty: 1.08
     stop_token: '<|endoftext|>' # I hope there is stop token but I don't think so
     return_full_text: False
-# force reply to top-level comments
-force_top_reply: True
-# restrict replies to comments on own posts/replies
-followup_only: True
-# linkpost_only - overrides
+# restrict activity to image post submissions
 linkpost_only: False
-# base probability of commenting on a post or top-level comment
-reply_chance: 0.1
-# OPTIONAL, strings that automatically trigger a reply
-trigger_words: ['who','what','where','when','why','how','?']
-# increase in probability of a response if triggered (per word)
-trigger_boost: 0.1
+# topic classifier model
+topic_classifier: "facebook/bart-large-mnli"
+# force reply to top-level comments on own posts
+force_top_reply: True
+# post or top-level comment topics that will trigger a comment
+topic_list: []
+# threshold to trigger a comment
+topic_threshold: 0.5
 # minimum reply model (microsoft/DialogRPT-width) score to reply to comment
 # score is a sigmoid, default of 0.5 corresponds to predicting at least 1 reply
 min_reply_score: 0.5

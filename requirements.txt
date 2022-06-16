@@ -3,3 +3,4 @@ ftfy
 pyyaml
 nltk
 google-api-python-client
+schedule

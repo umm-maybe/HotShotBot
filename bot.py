@@ -7,6 +7,7 @@ import csv
 import random
 import re
 import time
+import schedule
 from datetime import datetime, date
 import os, sys
 from hf_utils import generate_text, clean_text, query
@@ -54,14 +55,6 @@ def words_below(string,max_words):
     else:
         return True
 
-def words_below(string,max_words):
-    # check to see if an input string would exceed token budget
-    wordlike_list = string.split()
-    if len(wordlike_list)>max_words:
-        return False
-    else:
-        return True
-
 class reddit_bot:
     def __init__(self, config_file):
         self.config = load_yaml(config_file)
@@ -88,7 +81,7 @@ class reddit_bot:
         self.sub = self.reddit.subreddit(self.config['bot_subreddit'])
         self.submission_writer = threading.Thread(target=self.submission_loop, args=())
         self.submission_reader = threading.Thread(target=self.watch_submissions, args=())
-        self.comment_reader = threading.Thread(target=self.watch_comments, args=())
+        self.inbox_reader = threading.Thread(target=self.watch_inbox, args=())
         self.today = date.today()
         self.tally = 0 # to compare with daily input character budget
         self.SSI = TaggingMixin() # handler for legacy SSI tagging functions
@@ -130,6 +123,21 @@ class reddit_bot:
         else:
             return False
 
+    def on_topic(self,text):
+        payload = {
+            "inputs": text,
+            "parameters": {"candidate_labels": self.config['topic_list'],"multi_label": True},
+            "options": {"use_cache": False, "wait_for_model": True}
+        }
+        results = query(payload, self.config['topic_classifier'], self.headers)
+        if not results:
+            print('Topic checking failed!')
+            return False
+        if any(score > self.config['topic_threshold'] for score in results['scores']):
+            return True
+        else:
+            return False
+
     def check_budget(self,string):
         # check to see if an input string would exceed character budget
         # first, check the date; reset it and the tally if changed
@@ -142,34 +150,6 @@ class reddit_bot:
             return True
         else:
             return False
-
-    def best_text(self,context,stringlist):
-        # select highest-scoring non-toxic generated text from a list
-        maxscore = 0
-        besttext = ''
-        for textstring in stringlist:
-            cleanStr = clean_text(textstring)
-            if not cleanStr:
-                continue
-            if self.is_toxic(cleanStr):
-                score = 0
-            else:
-                prompt = context + '<|endoftext|>' + cleanStr
-                if self.check_budget(prompt) and words_below(prompt,500):
-                    self.tally += len(prompt)
-                    self.report_status()
-                else:
-                    print("Text too big for re-ranking model!")
-                    continue
-                payload = {"inputs": prompt}
-                results = query(payload, "microsoft/DialogRPT-updown", self.headers)
-                if results:
-                    score = results[0][0]['score']
-                else:
-                    score = 0
-            if score > maxscore:
-                besttext = cleanStr
-        return besttext
 
     def describe_image(self,url):
         # Settings below for Azure vision
@@ -186,17 +166,17 @@ class reddit_bot:
             'model-version': 'latest',
         })
         caption = ''
-        # try:
-        conn = http.client.HTTPSConnection('cb-vision-test.cognitiveservices.azure.com')
-        conn.request("POST", "/vision/v3.2/describe?%s" % params, '{"url":"'+url+'"}', headers)
-        response = conn.getresponse()
-        data = json.loads(response.read())
-        #print(data)
-        caption = 'A picture of ' + data['description']['captions'][0]['text']
-        conn.close()
-        print("Caption: "+caption)
-        # except Exception as e:
-        #    print(e)
+        try:
+            conn = http.client.HTTPSConnection(self.config['azure_endpoint'])
+            conn.request("POST", "/vision/v3.2/describe?%s" % params, '{"url":"'+url+'"}', headers)
+            response = conn.getresponse()
+            data = json.loads(response.read())
+            #print(data)
+            caption = 'A picture of ' + data['description']['captions'][0]['text']
+            conn.close()
+            print("Caption: "+caption)
+        except Exception as e:
+            print(e)
         return caption
 
     def generate_image(self,prompt):
@@ -219,46 +199,46 @@ class reddit_bot:
         return url
 
     def make_post(self):
-        submission = None
         # ssi-bot style GPT-2 model text post generation
         if random.random()<self.config['linkpost_share']:
             prompt = '<|sols'
         else:
             prompt = '<|soss'
-        if self.check_budget(prompt):
-            self.tally += len(prompt)
-            self.report_status()
-            print("Generating a post on r/"+self.sub.display_name)
-            post_params = self.config['post_textgen_parameters']
-            post_params['return_full_text'] = True
-            stringlist = generate_text(prompt,self.config['post_textgen_model'],post_params,self.headers)
-            if stringlist:
-                for generated_text in stringlist:
-                    print(f"GENERATED: {generated_text}")
-                    if not self.bad_keyword(generated_text):
-                        if self.is_toxic(generated_text):
-                            print("Generated text failed toxicity check, discarded.")
-                        else:
-                            post = self.SSI.extract_submission_from_generated_text(generated_text)
-                            if post:
-                                if prompt == '<|soss':
-                                    submission = self.sub.submit(title=post['title'],selftext=post['selftext'],flair_id=self.config['post_flair'])
-                                else:
-                                    post['url'] = self.generate_image(post['title'])
-                                    submission = self.sub.submit(title=post['title'],url=post['url'],flair_id=self.config['post_flair'])
-                                print("Post successful!")
-                                self.posts_made += 1
-                                self.report_status()
-                                break
-                            else:
-                                print("Failed to extract post from generated text!")
-                    else:
-                        print("Bad keywords in generated text, discarded.")
-            else:
-                print("Text generation failed!")
-        else:
+        if not self.check_budget(prompt):
             print("Not enough characters left in budget to make a post!")
-        return submission
+            return None
+        self.tally += len(prompt)
+        self.report_status()
+        print("Generating a post on r/"+self.sub.display_name)
+        post_params = self.config['post_textgen_parameters']
+        post_params['return_full_text'] = True
+        stringlist = generate_text(prompt,self.config['post_textgen_model'],post_params,self.headers)
+        if not stringlist:
+            print("Text generation failed!")
+            return None
+        for generated_text in stringlist:
+            print(f"GENERATED: {generated_text}")
+            if self.bad_keyword(generated_text):
+                print("Bad keywords in generated text, discarded.")
+                continue
+            if self.is_toxic(generated_text):
+                print("Generated text failed toxicity check, discarded.")
+                continue
+            post = self.SSI.extract_submission_from_generated_text(generated_text)
+            if not post:
+                print("Failed to extract post from generated text!")
+                continue
+            if prompt == '<|soss':
+                submission = self.sub.submit(title=post['title'],selftext=post['selftext'],flair_id=self.config['post_flair'])
+            else:
+                post['url'] = self.generate_image(post['title'])
+                submission = self.sub.submit(title=post['title'],url=post['url'],flair_id=self.config['post_flair'])
+            print("Post successful!")
+            self.posts_made += 1
+            self.report_status()
+            return submission
+        # if none of the posts passed the checks
+        return None
 
     def generate_reply(self, comment):
         print("Generating a reply to comment:\n"+comment.body)
@@ -287,34 +267,33 @@ class reddit_bot:
                 thread_item = thread_item.parent()
         if not at_top:
             print("Post not in prompt, discarding")
-            return reply
+            return None
         prompt = '\n'.join([self.config['bot_backstory'],prompt])
-        if self.check_budget(prompt) and words_below(prompt, 500):
-            self.tally += len(prompt)
-            self.report_status()
-            print(f"PROMPT: {prompt}")
-            reply_params = self.config['reply_textgen_parameters']
-            stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
-            if stringlist:
-                for generated_text in stringlist:
-                    cleanStr = clean_text(generated_text)
-                    if cleanStr:
-                        print(f"GENERATED: {cleanStr}")
-                        if not self.is_toxic(cleanStr):
-                            reply = comment.reply(body=cleanStr)
-                            print("Reply successful!")
-                            self.comments_made += 1
-                            self.report_status()
-                            break
-                        else:
-                            print("Text is toxic, skipping...")
-                    else:
-                        print("Invalid generation, skipping...")
-            else:
-                print("Generation failed, skipping...")
-        else:
+        if not self.check_budget(prompt):
             print("Prompt is too long, skipping...")
-        return reply
+            return None
+        self.tally += len(prompt)
+        self.report_status()
+        print(f"PROMPT: {prompt}")
+        reply_params = self.config['reply_textgen_parameters']
+        stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
+        if not stringlist:
+            print("Generation failed, skipping...")
+            return None
+        for generated_text in stringlist:
+            cleanStr = clean_text(generated_text)
+            if cleanStr:
+                print(f"GENERATED: {cleanStr}")
+                if not self.is_toxic(cleanStr):
+                    reply = comment.reply(body=cleanStr)
+                    print("Reply successful!")
+                    self.comments_made += 1
+                    self.report_status()
+                    return reply
+                else:
+                    print("Text is toxic, skipping...")
+            else:
+                print("Invalid generation, skipping...")
 
     def make_comment(self, submission):
         comment = None
@@ -330,32 +309,33 @@ class reddit_bot:
             alt_text = self.describe_image(submission.url)
             prompt = '\n'.join(['Image post by u/{} titled "{}": {}'.format(thread_OP,post_title,alt_text),prompt])
         prompt = '\n'.join([self.config['bot_backstory'],prompt])
-        if self.check_budget(prompt) and words_below(prompt,500):
-            self.tally += len(prompt)
-            self.report_status()
-            print(f"PROMPT: {prompt}")
-            reply_params = self.config['reply_textgen_parameters']
-            stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
-            if stringlist:
-                for generated_text in stringlist:
-                    cleanStr = clean_text(generated_text)
-                    if cleanStr:
-                        print(f"GENERATED: {cleanStr}")
-                        if not self.is_toxic(cleanStr):
-                            reply = comment.reply(cleanStr)
-                            print("Comment successful!")
-                            self.comments_made += 1
-                            self.report_status()
-                            break
-                        else:
-                            print("Text is toxic, skipping...")
-                    else:
-                        print("Invalid generation, skipping...")
-            else:
-                print("Generation failed, skipping...")
-        else:
+        if not self.check_budget(prompt):
             print("Prompt is too long, skipping...")
-        return comment
+            return None
+        self.tally += len(prompt)
+        self.report_status()
+        print(f"PROMPT: {prompt}")
+        reply_params = self.config['reply_textgen_parameters']
+        stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
+        if not stringlist:
+            print("Generation failed, skipping...")
+            return None
+        for generated_text in stringlist:
+            cleanStr = clean_text(generated_text)
+            if not cleanStr:
+                print("Invalid generation, skipping...")
+                continue
+            print(f"GENERATED: {cleanStr}")
+            if not self.is_toxic(cleanStr):
+                reply = submission.reply(cleanStr)
+                print("Comment successful!")
+                self.comments_made += 1
+                self.report_status()
+                return reply
+            else:
+                print("Text is toxic, skipping...")
+        # no valid replies
+        return None
 
     def watch_submissions(self):
         # watch for posts
@@ -379,36 +359,27 @@ class reddit_bot:
                         break
                 if already_replied:
                     continue
-                reply_probability = self.config['reply_chance']
-                if self.config['trigger_words']:
-                    if submission.is_self:
-                        post_string = ' '.join([submission.title.lower(),submission.selftext.lower()])
-                    else:
-                        post_string = submission.title.lower()
-                    for word in self.config['trigger_words']:
-                        if word.lower() in post_string:
-                            reply_probability = reply_probability + self.config['trigger_boost']
-                if random.random() < reply_probability:
+                if submission.is_self:
+                    post_string = '\n'.join([submission.title.lower(),submission.selftext.lower()])
+                else:
+                    post_string = submission.title.lower()
+                if self.on_topic(post_string):
                     print("Generating a comment on submission "+submission.id)
                     self.make_comment(submission)
-            # except:
-            #     print('Error reading comments, are you connected to the Internet?')
-            #     time.sleep(60)
 
-    def watch_comments(self):
-        # watch for comments
-        while True:
-            for comment in self.sub.stream.comments(pause_after=0,skip_existing=True):
+    def watch_inbox(self):
+        while True: # not sure if this line is necessary
+            for comment in self.reddit.inbox.stream(pause_after=0,skip_existing=True):
                 if not comment:
                     continue
+                if not comment.was_comment:
+                    # it's actually a message - don't reply; too expensive
+                    continue
                 self.comments_seen += 1
-                if comment.author == self.me:
-                    continue
-                if comment.submission.is_self and self.config['linkpost_only']:
-                    continue
                 if self.bad_keyword(comment.body):
                     print("Bad keyword found, skipping...")
                     continue
+                # not really sure this is necessary with skip_existing in place
                 already_replied = False
                 comment.replies.replace_more(limit=None)
                 for reply in comment.replies:
@@ -417,25 +388,13 @@ class reddit_bot:
                         break
                 if already_replied:
                     continue
-                # parent should have author attribute regardless of submission/comment
-                comment_parent = comment.parent()
-                if self.config['followup_only'] and comment_parent.author != self.me:
-                    continue
+                print('Checking comment "{}"'.format(comment.body))
                 if comment.parent_id[:2]=='t3':
-                    if self.config['force_top_reply']:
-                        print("Top-level reply forced.")
+                    if self.on_topic(comment.body) or self.config['force_top_reply']:
                         self.generate_reply(comment)
                     else:
-                        reply_probability = self.config['reply_chance']
-                        if self.config['trigger_words']:
-                            print("Trigger word found!")
-                            for word in self.config['trigger_words']:
-                                if word.lower() in comment.body:
-                                    reply_probability = reply_probability + self.config['trigger_boost']
-                        if random.random() < reply_probability:
-                            self.generate_reply(comment)
+                        print('Comment not selected for reply, skipping...')
                 else:
-                    print('Checking comment "{}"'.format(comment.body))
                     prompt = comment_parent.body + "<|endoftext|>" + comment.body
                     if self.check_budget(prompt) and words_below(prompt, 1000):
                         self.tally += len(prompt)
@@ -452,24 +411,26 @@ class reddit_bot:
                             print("Reply probability check failed!")
 
     def submission_loop(self):
-        while (self.config['post_frequency']>0):
-            post = self.make_post()
-            if post:
-                time.sleep(60*60*self.config['post_frequency'])
-        print("No submissions scheduled, exiting")
+        for t in self.config['post_schedule']:
+            schedule.every().day.at(t).do(self.make_post)
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
 
     def run(self):
         print("Bot named {} running on {}".format(self.config['bot_username'],self.config['bot_subreddit']))
+        if not self.config['post_schedule']:
+            print("No posts scheduled!")
         print("Launching submission writer")
         self.submission_writer.start()
-        # don't bother running submission reader if bot is followup-only
-        if not self.config['followup_only']:
-            print("Launching submission reader")
-            self.submission_reader.start()
+        # don't bother running submission reader if bot has no interests
+        if not self.config['topic_list']:
+            print("No bot topics set, will not read submissions.")
         else:
-            print("Bot set to follow-up only, will not read submissions.")
-        print("Launching comment reader")
-        self.comment_reader.start()
+            print("Scanning for posts on the following topics: "+", ".join(self.config['topic_list']))
+            self.submission_reader.start()
+        print("Launching inbox reader")
+        self.inbox_reader.start()
 
 def main():
     bot = reddit_bot(sys.argv[1]) #"bot_config.yaml"
