@@ -24,24 +24,16 @@ It is also feasible, though probably unnecessary, to fine-tune GPT-J.  If you ar
 ](https://github.com/kingoflolz/mesh-transformer-jax/blob/master/howto_finetune.md)
 
 ## Requirements
-To make the use of really large language models possible for plebian bot operators using lowly home servers and affordable computing cloud instances, we take advantage of the [Huggingface Accelerated CPU Inference API](https://huggingface.co/inference-api).  Anyone can [sign up](https://huggingface.co/join) and get access to 30,000 free input characters a month, which may not be much, but it's something.  Paid plans currently start at 1M characters a month for a price which is comparable to that of most VPS hosting providers charge for machines capable of running [the most popular codebase](https://github.com/zacc/ssi-bot) for interactive Reddit GPT-2 bots.
+To make the use of really large language models possible for plebian bot operators using lowly home servers and affordable computing cloud instances, we take advantage of the [Huggingface Accelerated CPU Inference API](https://huggingface.co/inference-api).  Anyone can [sign up](https://huggingface.co/join) and get access to 30,000 free input characters a month, which may not be much, but it's something.  Paid plans currently start at 1M characters a month for a price which is comparable to that of most VPS hosting providers charge for instances with 4GB RAM.
 
-Neither the actual Huggingface Transformers library, nor Torch are actually required to be installed, and you don't have to have access to a machine capable of running inference on the large language models being used.  In our tests a single bot consumed just 45MB of RAM and 1.5% of CPU on a mid-2015 MacBook Pro.
-
-A design decision was also made not to use any form of local database to duplicate data that Reddit already stores for us and makes available free of charge via PRAW.  Thus there are minimal disk read/writes, and minimal storage requirements (though maybe more network I/O than you might otherwise expect).
+Neither the actual Huggingface Transformers library, nor Torch are actually required to be installed, and you don't have to have access to a machine capable of running inference on the large language models being used.  A design decision was also made not to use any form of local database to duplicate data that Reddit already stores for us and makes available free of charge via PRAW.  Thus there are minimal disk read/writes, and minimal storage requirements (though maybe more network I/O than you might otherwise expect).
 
 ## Notes
-A couple of BERT models are used to keep things running on the rails:
+A [Dialog Ranking Pretrained Transformer](https://huggingface.co/microsoft/DialogRPT-width) is used to decide whether to reply to comments.   
 
-* A [Dialog Ranking Pretrained Transformer](https://huggingface.co/microsoft/DialogRPT-width) is used to decide whether to reply to comments; and
-* A [toxicity classifier](hitomi-team/discord-toxicity-classifier) is used to prevent hateful, threatening, or lewd speech from being posted by the bot on Reddit.
+The [Perspective API](https://perspectiveapi.com/) is used to prevent hateful, threatening, or lewd speech from being posted by the bot on Reddit.  It requires a Google account to set up.
 
-Other re-ranking models will be added as options in the near future.
-
-For more information on BERT see the following paper:
-
-[BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding](https://arxiv.org/abs/1810.04805)
-
+Microsoft Azure is used for image recognition.  Image generation is also supported; DeepAI is used for upscaling.
 
 ## Setup
 If you want to generate posts using a fine-tuned GPT-2 model, first follow the instructions [here](https://github.com/zacc/ssi-bot).  You can use the iPython notebook included in that repository to fine-tune a small- or medium-sized GPT-2 model for free on Google Colab.  Downloading and filtering Reddit data to make a good bot will be your biggest challenge, but there are tools and advice for that as well.  Also, follow its instructions for creating a Reddit username and getting an API ID and secret for it to use.
@@ -53,20 +45,20 @@ Once your GPT-2 model has been fine-tuned, upload it to the Huggingface model hu
 Clone this repository to the machine from which you wish to run your bot.  Create a virtual environment using `venv` (or `conda`, if you prefer), activate it, and run `pip install -Ur requirements.txt` to make sure all dependencies are met.
 
 ## Configuration
-All parameters are set in a YAML file named `bot_config.yaml`.  These are, for the most part, well-commented and/or self-explanatory.  Nonetheless, here are some tips for the easily confused:
+All parameters are set in a YAML file.  An example named `bot_config_example.yaml` has been provided.  Here are some tips on setting it up:
 
 * Environment variables must be created on your system to store the Reddit password, ID and secret for your bot, as well as your Huggingface API key (which can be obtained by visiting [this link](https://huggingface.co/settings/tokens)).  Reference the names of these variables, rather than the actual values.
 * Negative keywords are used to block replies to a post or comment; a default list of these is incorporated within the bot code.
 * Positive keywords can be used to modify the baseline chance of your bot making a reply when the re-ranker does not apply (e.g. top-level comments).  Or, you can force the bot to respond to all top-level comments.
-* You can also limit your bot to only follow up on replies to posts or comments that it previously made.
+* You can also limit your bot to only follow up on replies to posts or comments that it previously made, or comment only on linkpost threads.
 * The `character_budget` is a daily limit on how many characters may be sent to the accelerated inference API; the bot will prevent itself from going above this number.  This is so that you don't unwittingly face massive charges from Huggingface.
 
 ## Operation
-Once your bot is configured, you can run it by using the following command: `python3 bot.py`
+Once your bot is configured, you can run it by using the following command: `python3 bot.py bot_config.yaml` where `bot_config.yaml` is whatever you named your config file (you can create multiple ones for different bots, if you want).
 
 At the bottom of the terminal (or `tmux` instance) in which the bot is running, there is a status report which should look something like the following:
 
-`READ: post=0	reply=0	| WRITE: post=0	reply=0	| SPEND=0%`
+`READ: submissions=0	comment=0	| WRITE: post=0	reply=0	| SPEND=0%`
 
 The values shown will be updated as the bot runs, so that you can verify that it is actually receiving data (otherwise it should be fairly quiet).  The SPEND value is the ratio between the characters sent to the inference API thus far in that day, and the total budget you have assigned; it is reset to zero every day.
 
