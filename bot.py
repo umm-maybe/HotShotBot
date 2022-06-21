@@ -10,7 +10,7 @@ import time
 import schedule
 from datetime import datetime, date
 import os, sys
-from hf_utils import generate_text, clean_text, query
+from hf_utils import generate_text, query
 from tagging_mixin import TaggingMixin
 import yaml
 import threading
@@ -55,6 +55,26 @@ def words_below(string,max_words):
     else:
         return True
 
+def clean_text(generated_text):
+    truncate = 0
+    cleanStr = ''
+    # look for double-quotes
+    truncate = generated_text.find('"')
+    if truncate>-1:
+        cleanStr = generated_text[:truncate]
+    # if we can't find double-quotes, look for punctuation
+    elif re.search(r'[?.!]', generated_text):
+            trimPart = re.split(r'[?.!]', generated_text)[-1]
+            cleanStr = generated_text.replace(trimPart,'')
+    # if we can't find punctuation, use the last space
+    else:
+        truncate = generated_text.rfind(' ')
+        if truncate>-1:
+            cleanStr = generated_text[:truncate+1]
+    if not cleanStr:
+        print('Bad generation')
+    return cleanStr
+
 class reddit_bot:
     def __init__(self, config_file):
         self.config = load_yaml(config_file)
@@ -66,9 +86,10 @@ class reddit_bot:
         self.DeepAI_API_key = os.environ[self.config['deepai_api_key_var']]
         self.Google_API_key = os.environ[self.config['Google_API_key_var']]
         self.Azure_token = os.environ[self.config['azure_token_var']]
-        self.config['reddit_pass'] = os.environ[self.config['reddit_pass_var']]
-        self.config['reddit_ID'] = os.environ[self.config['reddit_ID_var']]
-        self.config['reddit_secret'] = os.environ[self.config['reddit_secret_var']]
+        self.textsynth_key = os.environ[self.config['textsynth_key_var']]
+        # self.config['reddit_pass'] = os.environ[self.config['reddit_pass_var']]
+        # self.config['reddit_ID'] = os.environ[self.config['reddit_ID_var']]
+        # self.config['reddit_secret'] = os.environ[self.config['reddit_secret_var']]
         self.reddit = praw.Reddit(
             user_agent=self.config['bot_username'],
             client_id=self.config['reddit_ID'],
@@ -124,11 +145,19 @@ class reddit_bot:
             return False
 
     def on_topic(self,text):
+        if not self.config['topic_list']:
+            return False
+        topic_list = self.config['topic_list']
         payload = {
             "inputs": text,
-            "parameters": {"candidate_labels": self.config['topic_list'],"multi_label": True},
+            "parameters": {"candidate_labels": topic_list,"multi_label": True},
             "options": {"use_cache": False, "wait_for_model": True}
         }
+        if not self.check_budget(text):
+            print("Not enough characters left in budget to check topic")
+            return False
+        self.tally += len(text)
+        self.report_status()
         results = query(payload, self.config['topic_classifier'], self.headers)
         if not results:
             print('Topic checking failed!')
@@ -137,6 +166,16 @@ class reddit_bot:
             return True
         else:
             return False
+
+    def textsynth_completion(self, prompt, max_tokens):
+        api_url = "https://api.textsynth.com"
+        response = requests.post(api_url + "/v1/engines/" + self.config['textsynth_engine'] + "/completions", headers = { "Authorization": "Bearer " + self.textsynth_key }, json = { "prompt": prompt, "max_tokens": max_tokens })
+        resp = response.json()
+        if "text" in resp:
+            return resp["text"]
+        else:
+            print("ERROR", resp)
+            assert False
 
     def check_budget(self,string):
         # check to see if an input string would exceed character budget
@@ -249,9 +288,10 @@ class reddit_bot:
         # accumulate comment thread for context
         at_top = False
         prompt = 'Reply by u/{}: "'.format(self.config['bot_username'])
+        thread_item = comment
         for level in range(self.config['max_levels']):
-            prompt = '\n'.join(['Comment by u/{}: "{}"'.format(comment.author.name, comment.body),prompt])
-            if comment.parent_id[:2]=='t3':
+            prompt = '\n'.join(['Comment by u/{}: "{}"'.format(thread_item.author.name, thread_item.body),prompt])
+            if thread_item.parent_id[:2]=='t3':
                 # next thing is the post, not a comment
                 # To do: image recognition/description for link posts
                 at_top = True
@@ -266,36 +306,37 @@ class reddit_bot:
                     prompt = '\n'.join(['Image post by u/{} titled "{}": {}'.format(thread_OP,post_title,alt_text),prompt])
                 break
             else:
-                comment = comment.parent()
+                thread_item = thread_item.parent()
         if not at_top:
             print("Post not in prompt, discarding")
             return None
         prompt = '\n'.join([self.config['bot_backstory'],prompt])
-        if not self.check_budget(prompt):
-            print("Prompt is too long, skipping...")
-            return None
-        self.tally += len(prompt)
-        self.report_status()
+        # if not self.check_budget(prompt):
+        #     print("Prompt is too long, skipping...")
+        #     return None
+        # self.tally += len(prompt)
+        # self.report_status()
         print(f"PROMPT: {prompt}")
-        reply_params = self.config['reply_textgen_parameters']
-        stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
-        if not stringlist:
+        # reply_params = self.config['reply_textgen_parameters']
+        # stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
+        generated_text = self.textsynth_completion(prompt, 50)
+        if not generated_text:
             print("Generation failed, skipping...")
             return None
-        for generated_text in stringlist:
-            cleanStr = clean_text(generated_text)
-            if cleanStr:
-                print(f"GENERATED: {cleanStr}")
-                if not self.is_toxic(cleanStr):
-                    reply = comment.reply(body=cleanStr)
-                    print("Reply successful!")
-                    self.comments_made += 1
-                    self.report_status()
-                    return reply
-                else:
-                    print("Text is toxic, skipping...")
+        # for generated_text in stringlist:
+        cleanStr = clean_text(generated_text)
+        if cleanStr:
+            print(f"GENERATED: {cleanStr}")
+            if not self.is_toxic(cleanStr):
+                reply = comment.reply(body=cleanStr)
+                print("Reply successful!")
+                self.comments_made += 1
+                self.report_status()
+                return reply
             else:
-                print("Invalid generation, skipping...")
+                print("Text is toxic, skipping...")
+            # else:
+            #     print("Invalid generation, skipping...")
 
     def make_comment(self, submission):
         comment = None
@@ -305,38 +346,39 @@ class reddit_bot:
         print("Commenting on submission:\n"+post_title)
         prompt = 'Comment by u/{}: "'.format(self.config['bot_username'])
         if submission.is_self:
-            post_body = comment.submission.selftext
+            post_body = submission.selftext
             prompt = '\n'.join(['Post by u/{} titled "{}": "{}"'.format(thread_OP,post_title,post_body),prompt])
         else:
             alt_text = self.describe_image(submission.url)
             prompt = '\n'.join(['Image post by u/{} titled "{}": {}'.format(thread_OP,post_title,alt_text),prompt])
         prompt = '\n'.join([self.config['bot_backstory'],prompt])
-        if not self.check_budget(prompt):
-            print("Prompt is too long, skipping...")
-            return None
-        self.tally += len(prompt)
-        self.report_status()
+        # if not self.check_budget(prompt):
+        #     print("Prompt is too long, skipping...")
+        #     return None
+        # self.tally += len(prompt)
+        # self.report_status()
         print(f"PROMPT: {prompt}")
-        reply_params = self.config['reply_textgen_parameters']
-        stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
-        if not stringlist:
+        # reply_params = self.config['reply_textgen_parameters']
+        # stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
+        generated_text = self.textsynth_completion(prompt,50)
+        if not generated_text:
             print("Generation failed, skipping...")
             return None
-        for generated_text in stringlist:
-            cleanStr = clean_text(generated_text)
-            if not cleanStr:
-                print("Invalid generation, skipping...")
-                continue
-            print(f"GENERATED: {cleanStr}")
-            if not self.is_toxic(cleanStr):
-                reply = submission.reply(body=cleanStr)
-                print("Comment successful!")
-                self.comments_made += 1
-                self.report_status()
-                return reply
-            else:
-                print("Text is toxic, skipping...")
-        # no valid replies
+        # for generated_text in stringlist:
+        cleanStr = clean_text(generated_text)
+        if not cleanStr:
+            print("Invalid generation, skipping...")
+            return None
+        print(f"GENERATED: {cleanStr}")
+        if not self.is_toxic(cleanStr):
+            reply = submission.reply(body=cleanStr)
+            print("Comment successful!")
+            self.comments_made += 1
+            self.report_status()
+            return reply
+        else:
+            print("Text is toxic, skipping...")
+    # no valid replies
         return None
 
     def watch_submissions(self):
@@ -371,7 +413,8 @@ class reddit_bot:
 
     def watch_inbox(self):
         while True: # not sure if this line is necessary
-            for comment in self.reddit.inbox.stream(pause_after=0,skip_existing=True):
+            # for comment in self.reddit.inbox.unread(limit=None):
+            for comment in self.reddit.inbox.stream(pause_after=0, skip_existing=True):
                 if not comment:
                     continue
                 if not comment.was_comment:
@@ -379,11 +422,13 @@ class reddit_bot:
                     comment.mark_read()
                     continue
                 self.comments_seen += 1
+                if not comment.author:
+                    comment.mark_read()
+                    continue
                 if self.bad_keyword(comment.body):
                     print("Bad keyword found, skipping...")
                     comment.mark_read()
                     continue
-                # not really sure this is necessary with skip_existing in place
                 already_replied = False
                 comment.replies.replace_more(limit=None)
                 for reply in comment.replies:

@@ -8,8 +8,13 @@ def query(payload, model_path, headers):
     for retry in range(3):
         response = requests.post(API_URL, headers=headers, json=payload)
         if response.status_code == requests.codes.ok:
-            return response.json()
-            break
+            try:
+                results = response.json()
+                return results
+            except:
+                print('Invalid response received from server')
+                print(response)
+                return None
         else:
             # Not connected to internet maybe?
             if response.status_code==404:
@@ -19,6 +24,9 @@ def query(payload, model_path, headers):
             if response.status_code==503:
                 print(response.json()['error'])
                 time.sleep(response.json()['estimated_time'])
+                continue
+            if response.status_code==504:
+                print('504 Gateway Timeout')
             else:
                 print('Unsuccessful request, status code '+ str(response.status_code))
                 print(response.json()) #debug only
@@ -29,6 +37,8 @@ def generate_text(prompt, model_path, text_generation_parameters, headers):
     options = {'use_cache': False, 'wait_for_model': True}
     payload = {"inputs": prompt, "parameters": text_generation_parameters, "options": options}
     output_list = query(payload, model_path, headers)
+    if not output_list:
+        print('Generation failed')
     end_time = time.time()
     duration = round(end_time - start_time, 1)
     stringlist = []
@@ -39,24 +49,3 @@ def generate_text(prompt, model_path, text_generation_parameters, headers):
     else:
         print(output_list)
     return(stringlist)
-
-def clean_text(generated_text):
-    truncate = 0
-    cleanStr = ''
-    # look for double-quotes
-    truncate = generated_text.find('"')
-    if truncate>-1:
-        cleanStr = generated_text[:truncate]
-    # if we can't find double-quotes, look for punctuation
-    elif re.search(r'[?.!]', generated_text):
-            trimPart = re.split(r'[?.!]', generated_text)[-1]
-            cleanStr = generated_text.replace(trimPart,'')
-    # if we can't find punctuation, use the last space
-    else:
-        truncate = generated_text.rfind(' ')
-        if truncate>-1:
-            cleanStr = generated_text[:truncate+1]
-    if not cleanStr:
-        print('Bad generation')
-    return cleanStr
-    
