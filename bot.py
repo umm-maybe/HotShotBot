@@ -86,7 +86,7 @@ class reddit_bot:
         self.DeepAI_API_key = os.environ[self.config['deepai_api_key_var']]
         self.Google_API_key = os.environ[self.config['Google_API_key_var']]
         self.Azure_token = os.environ[self.config['azure_token_var']]
-        self.textsynth_key = os.environ[self.config['textsynth_key_var']]
+        # self.textsynth_key = os.environ[self.config['textsynth_key_var']]
         # self.config['reddit_pass'] = os.environ[self.config['reddit_pass_var']]
         # self.config['reddit_ID'] = os.environ[self.config['reddit_ID_var']]
         # self.config['reddit_secret'] = os.environ[self.config['reddit_secret_var']]
@@ -311,21 +311,22 @@ class reddit_bot:
             print("Post not in prompt, discarding")
             return None
         prompt = '\n'.join([self.config['bot_backstory'],prompt])
-        # if not self.check_budget(prompt):
-        #     print("Prompt is too long, skipping...")
-        #     return None
-        # self.tally += len(prompt)
-        # self.report_status()
+        if not self.check_budget(prompt):
+            print("Prompt is too long, skipping...")
+            return None
+        self.tally += len(prompt)
+        self.report_status()
         print(f"PROMPT: {prompt}")
-        # reply_params = self.config['reply_textgen_parameters']
-        # stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
-        generated_text = self.textsynth_completion(prompt, 50)
-        if not generated_text:
+        reply_params = self.config['reply_textgen_parameters']
+        stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
+        if not stringlist:
             print("Generation failed, skipping...")
             return None
-        # for generated_text in stringlist:
-        cleanStr = clean_text(generated_text)
-        if cleanStr:
+        for generated_text in stringlist:
+            cleanStr = clean_text(generated_text)
+            if not cleanStr:
+                print("Invalid generation, skipping...")
+                return None
             print(f"GENERATED: {cleanStr}")
             if not self.is_toxic(cleanStr):
                 reply = comment.reply(body=cleanStr)
@@ -335,8 +336,8 @@ class reddit_bot:
                 return reply
             else:
                 print("Text is toxic, skipping...")
-            # else:
-            #     print("Invalid generation, skipping...")
+                return None
+        return None # No valid replies
 
     def make_comment(self, submission):
         comment = None
@@ -352,33 +353,32 @@ class reddit_bot:
             alt_text = self.describe_image(submission.url)
             prompt = '\n'.join(['Image post by u/{} titled "{}": {}'.format(thread_OP,post_title,alt_text),prompt])
         prompt = '\n'.join([self.config['bot_backstory'],prompt])
-        # if not self.check_budget(prompt):
-        #     print("Prompt is too long, skipping...")
-        #     return None
-        # self.tally += len(prompt)
-        # self.report_status()
+        if not self.check_budget(prompt):
+            print("Prompt is too long, skipping...")
+            return None
+        self.tally += len(prompt)
+        self.report_status()
         print(f"PROMPT: {prompt}")
-        # reply_params = self.config['reply_textgen_parameters']
-        # stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
-        generated_text = self.textsynth_completion(prompt,50)
-        if not generated_text:
+        reply_params = self.config['reply_textgen_parameters']
+        stringlist = generate_text(prompt,self.config['reply_textgen_model'],reply_params,self.headers)
+        if not stringlist:
             print("Generation failed, skipping...")
             return None
-        # for generated_text in stringlist:
-        cleanStr = clean_text(generated_text)
-        if not cleanStr:
-            print("Invalid generation, skipping...")
-            return None
-        print(f"GENERATED: {cleanStr}")
-        if not self.is_toxic(cleanStr):
-            reply = submission.reply(body=cleanStr)
-            print("Comment successful!")
-            self.comments_made += 1
-            self.report_status()
-            return reply
-        else:
-            print("Text is toxic, skipping...")
-    # no valid replies
+        for generated_text in stringlist:
+            cleanStr = clean_text(generated_text)
+            if not cleanStr:
+                print("Invalid generation, skipping...")
+                return None
+            print(f"GENERATED: {cleanStr}")
+            if not self.is_toxic(cleanStr):
+                reply = submission.reply(body=cleanStr)
+                print("Comment successful!")
+                self.comments_made += 1
+                self.report_status()
+                return reply
+            else:
+                print("Text is toxic, skipping...")
+        # no valid replies
         return None
 
     def watch_submissions(self):
