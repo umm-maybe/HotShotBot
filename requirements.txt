@@ -4,4 +4,4 @@ pyyaml
 nltk
 google-api-python-client
 schedule
-nltk-rake
+rake-nltk

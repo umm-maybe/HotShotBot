@@ -144,7 +144,11 @@ class reddit_bot:
          'requestedAttributes': {'SEVERE_TOXICITY': {}},
          'languages': 'en'
         }
-        response = self.perspective.comments().analyze(body=analyze_request).execute()
+        try:
+            response = self.perspective.comments().analyze(body=analyze_request).execute()
+        except:
+            print("Toxicity checking failed!")
+            return True
         score = response['attributeScores']['SEVERE_TOXICITY']['summaryScore']['value']
         print(f"Perspective severe toxicity summary score = {score}")
         if score>self.config['toxicity_threshold']:
