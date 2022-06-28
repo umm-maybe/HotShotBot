@@ -3,14 +3,13 @@ This project provides a codebase for hybrid GPT Reddit bots running on r/SubSimG
 
 ## TL;DR Feature List
 
-* Post generation using legacy fine-tuned GPT-2 SSI bots
+* Post generation using legacy fine-tuned GPT-2 SSI bots or zero-shot large language models (e.g. GPT-J)
 * Schedule posts at specific times each day rather than at a specified frequency
-* Few-shot comment generation using GPT-J (or any other text generation model hosted on the Huggingface Accelerated Inference API, e.g. GPT-Neo-X) with backstory specified by bot operator
+* Few-shot comment generation using GPT-J (or any other text generation model hosted on the Huggingface Accelerated Inference API, e.g. GPT-Neo) with backstory specified by bot operator
 * Toxicity filtering using Perspective API and negative keywords
 * Image recognition using Microsoft Azure Vision
 * Image generation (latent diffusion model) and upscaling using DeepAI
 * Zero-shot text classification (bot will apply to posts and top-level comments related to topics you specify)
-* Comment reply prediction using DialogRPT
 * Full thread accumulation in comment context
 * Does not require Torch
 * No database - PRAW only
@@ -22,7 +21,7 @@ These larger language models are also capable of role-play, meaning they can gen
 
 For more background information on large language models and their few-shot learning behavior, see the following papers:
 
-* [Attention Is All You Needd](https://arxiv.org/abs/1706.03762)
+* [Attention Is All You Need](https://arxiv.org/abs/1706.03762)
 * [Language Models are Unsupervised Multitask Learners](https://d4mucfpksywv.cloudfront.net/better-language-models/language-models.pdf)
 * [Language Models are Few-Shot Learners](https://arxiv.org/abs/2005.14165)
 * [GPT-J-6B: 6B JAX-Based Transformer](https://arankomatsuzaki.wordpress.com/2021/06/04/gpt-j/)
@@ -36,14 +35,12 @@ It is also feasible, though probably unnecessary, to fine-tune GPT-J.  If you ar
 ](https://github.com/kingoflolz/mesh-transformer-jax/blob/master/howto_finetune.md)
 
 ## Requirements
-To make the use of really large language models possible for plebian bot operators using lowly home servers and affordable computing cloud instances, we take advantage of the [Huggingface Accelerated CPU Inference API](https://huggingface.co/inference-api).  Anyone can [sign up](https://huggingface.co/join) and get access to 30,000 free input characters a month, which may not be much, but it's something.  Paid plans currently start at 1M characters a month for a price which is comparable to that which most VPS hosting providers charge for instances with 4GB RAM as typically needed to run local inference on GPT-2 models.
+To make the use of really large language models possible for plebian bot operators using lowly home servers and affordable computing cloud instances, we take advantage of the [Huggingface Accelerated CPU Inference API](https://huggingface.co/inference-api).  Anyone can [sign up](https://huggingface.co/join) and get access to 30,000 free input characters a month, which may not be much, but it's something.
 
-This repo does not depend on the actual Huggingface Transformers library, nor Torch.  A design decision was also made not to use any form of local database to duplicate data that Reddit already stores for us and makes available free of charge via PRAW.  Thus there are minimal disk read/writes, and minimal storage requirements (though maybe more network I/O than you might otherwise expect).  This code has been successfully tested on a Raspberry Pi 4, for example.
+This repo does not depend on the actual Huggingface Transformers library, nor PyTorch.  A design decision was also made not to use any form of local database to duplicate data that Reddit already stores for us and makes available free of charge via PRAW.  Thus there are minimal disk read/writes, and minimal storage requirements (though maybe more network I/O than you might otherwise expect).  This code has been successfully tested on a Raspberry Pi 4, for example.
 
 ## Notes
-A [Dialog Ranking Pretrained Transformer](https://huggingface.co/microsoft/DialogRPT-width) is used to decide whether to reply to comments.   
-
-The [Perspective API](https://perspectiveapi.com/) is used to prevent hateful, threatening, or lewd speech from being posted on Reddit by the bot.  It requires a Google account to set up.
+The [Perspective API](https://perspectiveapi.com/) is used to prevent severely toxic text from being posted on Reddit by the bot.  It requires a Google account to set up.
 
 Microsoft Azure is used for image recognition.  Image generation is also supported; DeepAI is used for upscaling.
 

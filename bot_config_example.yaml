@@ -1,54 +1,58 @@
 bot_username: "IAmA-SSI-Bot"
 bot_subreddit: "SubSimGPT2Interactive"
-bot_backstory: 'The following is part of an "Ask Me Anything" thread on Reddit.'
-# To support systems like repl.it, the following are "secrets"
+bot_backstory: 'The following is part of a weird and comical AMA thread on Reddit.'
+reddit_pass: # enter password here
+reddit_ID: # enter Reddit bot ID here
+reddit_secret: # enter Reddit bot secret here
+# The following are "secrets"
 # so, instead of the actual values, enter the name of an environment variable where it's stored
-reddit_pass_var: "IAMA_PASS"
-reddit_ID_var: "IAMA_ID"
-reddit_secret_var: "IAMA_SECRET"
+# Huggingface Inference API key
 HF_key_var: "HF_BEARER_ID"
 # For Perspective API toxicity checking
 Google_API_key_var: "GOOGLE_KEY"
 # For image recognition
 azure_token_var: "AZURE_KEY"
-# Azure vision endpoint
-azure_endpoint: 'cb-vision-test.cognitiveservices.azure.com'
+# Azure vision endpoint (not secret)
+azure_endpoint: # your endpoint goes here
 # For image upscaling
 deepai_api_key_var: "DEEPAI_KEY"
-# schedule for posts.
-post_schedule: ["15:00"]
-# share of posts which are linkposts (images)
-linkpost_share: 0
-# separate GPT-2 model for posts with SSI-style tagging
-post_textgen_model: "umm-maybe/IAmA_GPT2"
-post_textgen_parameters:
-    max_new_tokens: 250 # cannot be more than 250, apparently
-    num_return_sequences: 2
-    temperature: 0.8
-    top_k: 40
-    repetition_penalty: 1.08
-    stop_token: '<|endoftext|>' # I hope there is stop token but I don't think so
-    return_full_text: True
-post_flair: 'ff1e3b8e-a518-11ea-b87f-0e2836404d8b'
-reply_textgen_model: "EleutherAI/gpt-j-6B"
+# LLM for commenting
+reply_textgen_model: "EleutherAI/gpt-neo-2.7B"
 reply_textgen_parameters:
     max_new_tokens: 250 # cannot be more than 250, apparently
     num_return_sequences: 1
     temperature: 0.8
     top_k: 40
     repetition_penalty: 1.08
-    stop_token: '<|endoftext|>' # I hope there is stop token but I don't think so
+    stop_token: '<|endoftext|>'
     return_full_text: False
+# schedule for posts.
+post_schedule: ["15:00"]
+# number of times to try making a post before giving up
+post_tries: 3
+# share of posts which are linkposts (images)
+linkpost_share: 0
+# Smaller finetuned model for posts with SSI-style tagging
+post_textgen_model: ""
+post_textgen_parameters:
+    max_new_tokens: 250 # cannot be more than 250, apparently
+    num_return_sequences: 2
+    temperature: 0.8
+    top_k: 40
+    repetition_penalty: 1.08
+    stop_token: '<|endoftext|>'
+    return_full_text: True
+post_flair: 'ff1e3b8e-a518-11ea-b87f-0e2836404d8b'
 # restrict activity to image post submissions
 linkpost_only: False
 # topic classifier model
-topic_classifier: "facebook/bart-large-mnli"
+topic_classifier: "valhalla/distilbart-mnli-12-1"
 # force reply to top-level comments on own posts
 force_top_reply: True
 # post or top-level comment topics that will trigger a comment
 topic_list: []
 # threshold to trigger a comment
-topic_threshold: 0.5
+topic_threshold: 0.7
 # minimum reply model (microsoft/DialogRPT-width) score to reply to comment
 # score is a sigmoid, default of 0.5 corresponds to predicting at least 1 reply
 min_reply_score: 0.5
