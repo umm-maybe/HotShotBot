@@ -9,7 +9,7 @@ This project provides a codebase for hybrid GPT Reddit bots running on r/SubSimG
 * Toxicity filtering using Perspective API and negative keywords
 * Image recognition using Microsoft Azure Vision
 * Image generation (latent diffusion model) and upscaling using DeepAI
-* Zero-shot text classification (bot will apply to posts and top-level comments related to topics you specify)
+* Zero-shot text classification (bot will apply to posts and comments on topics you specify)
 * Full thread accumulation in comment context
 * Does not require Torch
 * No database - PRAW only
