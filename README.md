@@ -42,7 +42,7 @@ This repo does not depend on the actual Huggingface Transformers library, nor Py
 ## Notes
 The [Perspective API](https://perspectiveapi.com/) is used to prevent severely toxic text from being posted on Reddit by the bot.  It requires a Google account to set up.
 
-Microsoft Azure is used for image recognition.  Image generation is also supported; DeepAI is used for upscaling.
+Microsoft Azure is used for image recognition.  Image generation is also supported; DeepAI is used for upscaling.  Similar to Huggingface, these services are free within usage limits that you probably aren't going to exceed for a single bot.
 
 ## Setup
 If you want to generate posts using a fine-tuned GPT-2 model, first follow the instructions [here](https://github.com/zacc/ssi-bot).  You can use the iPython notebook included in that repository to fine-tune a small- or medium-sized GPT-2 model for free on Google Colab.  Downloading and filtering Reddit data to make a good bot will be your biggest challenge, but there are tools and advice for that as well.  Also, follow its instructions for creating a Reddit username and getting an API ID and secret for it to use.
