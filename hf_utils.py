@@ -29,7 +29,7 @@ def query(payload, model_path, headers):
                 print('504 Gateway Timeout')
             else:
                 print('Unsuccessful request, status code '+ str(response.status_code))
-                print(response.json()) #debug only
+                # print(response.json()) #debug only
                 print(payload)
 
 def generate_text(prompt, model_path, text_generation_parameters, headers):
