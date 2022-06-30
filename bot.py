@@ -19,6 +19,7 @@ from rake_nltk import Rake
 from googleapiclient import discovery
 import http.client, urllib.request, urllib.parse, urllib.error, base64
 import json
+from praw.models import Message as praw_Message
 
 _default_negative_keywords = [
     ('ar', 'yan'), ('ausch, witz'),
@@ -57,24 +58,31 @@ def words_below(string,max_words):
         return True
 
 def clean_text(generated_text):
-    truncate = 0
-    cleanStr = ''
     # look for double-quotes
     truncate = generated_text.find('"')
     if truncate>-1:
         cleanStr = generated_text[:truncate]
-    # if we can't find double-quotes, look for punctuation
-    elif re.search(r'[?.!]', generated_text):
-            trimPart = re.split(r'[?.!]', generated_text)[-1]
-            cleanStr = generated_text.replace(trimPart,'')
-    # if we can't find punctuation, use the last space
-    else:
-        truncate = generated_text.rfind(' ')
-        if truncate>-1:
-            cleanStr = generated_text[:truncate+1]
-    if not cleanStr:
-        print('Bad generation')
-    return cleanStr
+        return cleanStr
+    # if we can't find double-quotes, look for the last newline
+    truncate = generated_text.rfind('\n')
+    if truncate>-1:
+        cleanStr = generated_text[:truncate]
+        return cleanStr
+    # if we can't find a newline, look for the last terminal punctuation
+    if re.search(r'[?.!]', generated_text):
+        trimPart = re.split(r'[?.!]', generated_text)[-1]
+        cleanStr = generated_text.replace(trimPart,'')
+        return cleanStr
+    # if we can't find a newline, use the last space
+    truncate = generated_text.rfind(' ')
+    if truncate>-1:
+        cleanStr = generated_text[:truncate]
+        # using the last space may result in a trailing comma or colon; remove it
+        if cleanStr[-1] in ',;:':
+            cleanStr = cleanStr[:-1]
+        return cleanStr
+    # if we can't even find any spaces, give up
+    return None
 
 def get_keywords(text):
     rake_nltk_var = Rake()
@@ -88,15 +96,13 @@ class reddit_bot:
         if not self.config:
             print('Cannot load config file; check path and formatting')
             sys.exit()
+        self.bot_backstory = self.config['bot_backstory']
+        self.topic_list = self.config['topic_list']
         self.HF_key = os.environ[self.config['HF_key_var']]
         self.headers = {"Authorization": "Bearer "+self.HF_key}
         self.DeepAI_API_key = os.environ[self.config['deepai_api_key_var']]
         self.Google_API_key = os.environ[self.config['Google_API_key_var']]
         self.Azure_token = os.environ[self.config['azure_token_var']]
-        # self.textsynth_key = os.environ[self.config['textsynth_key_var']]
-        # self.config['reddit_pass'] = os.environ[self.config['reddit_pass_var']]
-        # self.config['reddit_ID'] = os.environ[self.config['reddit_ID_var']]
-        # self.config['reddit_secret'] = os.environ[self.config['reddit_secret_var']]
         self.reddit = praw.Reddit(
             user_agent=self.config['bot_username'],
             client_id=self.config['reddit_ID'],
@@ -141,7 +147,7 @@ class reddit_bot:
     def is_toxic(self,text):
         analyze_request = {
          'comment': { 'text': text },
-         'requestedAttributes': {'SEVERE_TOXICITY': {}},
+         'requestedAttributes': {'TOXICITY': {}},
          'languages': 'en'
         }
         try:
@@ -149,8 +155,8 @@ class reddit_bot:
         except:
             print("Toxicity checking failed!")
             return True
-        score = response['attributeScores']['SEVERE_TOXICITY']['summaryScore']['value']
-        print(f"Perspective severe toxicity summary score = {score}")
+        score = response['attributeScores']['TOXICITY']['summaryScore']['value']
+        print(f"Perspective toxicity summary score = {score}")
         if score>self.config['toxicity_threshold']:
             return True
         else:
@@ -175,8 +181,8 @@ class reddit_bot:
         for k in range(len(topic_list)):
             topic = topic_list[k]
             score = results['scores'][k]
-            print('{} "{}"'.format(round(score,1),topic))
             if score > self.config['topic_threshold']:
+                print('"{}": {}'.format(topic,round(score,1)))
                 return True
         # otherwise
         return False
@@ -286,7 +292,7 @@ class reddit_bot:
     def build_post(self):
         for attempt in range(self.config['post_tries']):
             # one-shot post generation
-            prompt = self.config['bot_backstory']
+            prompt = self.bot_backstory
             prompt = '\n'.join([prompt,'Title of a Reddit post by u/{}: "'.format(self.config['bot_username'])])
             if not self.check_budget(prompt):
                 print("Not enough characters left in budget to make a post!")
@@ -322,7 +328,12 @@ class reddit_bot:
                 return None
             if random.random()<self.config['linkpost_share']:
                 post['url'] = self.generate_image(post['title'])
-                submission = self.sub.submit(title=post['title'],url=post['url'],flair_id=self.config['post_flair'])
+                try:
+                    submission = self.sub.submit(title=post['title'],url=post['url'],flair_id=self.config['post_flair'])
+                    return submission
+                except:
+                    print("Post unsuccessful...")
+                    continue
             else:
                 prompt = prompt + post['title'] + '"'
                 prompt = '\n'.join([prompt,'Post body: "'.format(self.config['bot_username'])])
@@ -336,20 +347,28 @@ class reddit_bot:
                         cleanStr = clean_text(generated_text)
                         if not cleanStr:
                             print("Invalid generation, skipping...")
-                            return None
+                            continue
                         print(f"GENERATED: {cleanStr}")
                         if self.bad_keyword(cleanStr) or self.is_toxic(cleanStr):
                             print("Generated text failed toxicity check, discarded.")
                             continue
                         post['selftext'] = cleanStr
                 if 'selftext' not in post.keys():
-                    submission = self.sub.submit(title=post['title'],selftext='',flair_id=self.config['post_flair'])
+                    try:
+                        submission = self.sub.submit(title=post['title'],selftext='',flair_id=self.config['post_flair'])
+                    except:
+                        print("Post unsuccessful...")
+                        continue
                 else:
-                    submission = self.sub.submit(title=post['title'],selftext=post['selftext'],flair_id=self.config['post_flair'])
+                    try:
+                        submission = self.sub.submit(title=post['title'],selftext=post['selftext'],flair_id=self.config['post_flair'])
+                    except:
+                        print("Post unsuccessful...")
                 print("Post successful!")
                 self.posts_made += 1
                 self.report_status()
                 return submission
+            time.sleep(900) # wait fifteen minutes
         # if none of the posts passed the checks
         return None
 
@@ -381,7 +400,7 @@ class reddit_bot:
         if not at_top:
             print("Post not in prompt, discarding")
             return None
-        prompt = '\n'.join([self.config['bot_backstory'],prompt])
+        prompt = '\n'.join([self.bot_backstory,prompt])
         if not self.check_budget(prompt):
             print("Prompt is too long, skipping...")
             return None
@@ -422,7 +441,7 @@ class reddit_bot:
         else:
             alt_text = self.describe_image(submission.url)
             prompt = '\n'.join(['Image post by u/{} titled "{}": {}'.format(thread_OP,post_title,alt_text),prompt])
-        prompt = '\n'.join([self.config['bot_backstory'],prompt])
+        prompt = '\n'.join([self.bot_backstory,prompt])
         if not self.check_budget(prompt):
             print("Prompt is too long, skipping...")
             return None
@@ -443,11 +462,15 @@ class reddit_bot:
             if self.is_toxic(cleanStr) or self.bad_keyword(cleanStr):
                 print("Text is toxic, skipping...")
             else:
-                reply = submission.reply(body=cleanStr)
-                print("Comment successful!")
-                self.comments_made += 1
-                self.report_status()
-                return reply
+                try:
+                    reply = submission.reply(body=cleanStr)
+                    print("Comment successful!")
+                    self.comments_made += 1
+                    self.report_status()
+                    return reply
+                except:
+                    print("Comment failed, sorry...")
+                    return None
         # no valid replies
         return None
 
@@ -462,6 +485,8 @@ class reddit_bot:
                 if submission.author == self.me:
                     continue
                 if self.bad_keyword(submission.title) or (submission.is_self and self.bad_keyword(submission.selftext)):
+                    continue
+                if self.is_toxic(submission.title) or (submission.is_self and self.is_toxic(submission.selftext)):
                     continue
                 if self.config['linkpost_only']==2 and not submission.is_self:
                     # force reply to image posts
@@ -481,55 +506,77 @@ class reddit_bot:
                     post_string = '\n'.join([submission.title.lower(),submission.selftext.lower()])
                 else:
                     post_string = submission.title.lower()
-                if self.on_topic(post_string,self.config['topic_list']):
+                if self.on_topic(post_string,self.topic_list):
                     print("Generating a comment on submission "+submission.id)
                     self.make_comment(submission)
 
     def watch_inbox(self):
         while True: # not sure if this line is necessary
-            # for comment in self.reddit.inbox.unread(limit=None):
-            for comment in self.reddit.inbox.stream(pause_after=0, skip_existing=True):
-                if not comment:
+            for item in self.reddit.inbox.stream(pause_after=0, skip_existing=True):
+                if not item:
                     continue
-                if not comment.was_comment:
-                    # it's actually a message - don't reply; too expensive
-                    # however, shut down with a specific killphrase
-                    if comment.body=="shutdown":
-                        sys.exit()
-                    comment.mark_read()
+                if isinstance(item, praw_Message):
+                    # it's actually a message
+                    # if item.author.name==self.config['bot_operator'] and (self.config['kill_phrase'] in item.body):
+                    #     item.mark_read()
+                    #     self.shutdown()
+                    if self.config['dynamic_prompt']:
+                        if item.subject and item.body:
+                            if self.is_toxic(item.subject):
+                                item.reply(body="Backstory is toxic, rejected...")
+                                continue
+                            self.bot_backstory = item.subject
+                            user_topic_list = item.body.split(',')[:10]
+                            if user_topic_list:
+                                self.topic_list = user_topic_list
+                            else:
+                                self.topic_list = get_keywords(self.bot_backstory)
+                            status = 'Backstory changed to: {} with interests {}'.format(self.bot_backstory,self.topic_list)
+                            item.reply(body=status)
+                            self.me.subreddit.submit(title='Bot updated by {}'.format(item.author.name),selftext=status)
+                    item.mark_read()
                     continue
                 self.comments_seen += 1
-                if not comment.author:
-                    comment.mark_read()
+                if not item.author:
+                    item.mark_read()
                     continue
-                if self.bad_keyword(comment.body):
+                if self.bad_keyword(item.body):
                     print("Bad keyword found, skipping...")
-                    comment.mark_read()
+                    item.mark_read()
+                    continue
+                if self.is_toxic(item.body):
+                    print("Comment is toxic, skipping...")
+                    item.mark_read()
                     continue
                 already_replied = False
-                comment.replies.replace_more(limit=None)
-                for reply in comment.replies:
+                item.replies.replace_more(limit=None)
+                for reply in item.replies:
                     if reply.author == self.me:
                         already_replied = True
                         break
                 if already_replied:
-                    comment.mark_read()
+                    item.mark_read()
                     continue
-                print('Checking comment "{}"'.format(comment.body))
-                if comment.parent_id[:2]=='t3' and self.config['force_top_reply']:
-                    self.generate_reply(comment)
-                elif self.check_budget(comment.body) and words_below(comment.body, 1000):
-                    if not self.config['topic_list']:
-                        # get the thing to which the commenter was responding
-                        comment_parent = comment.parent()
-                        topic_list = get_keywords(comment_parent.body)
+                print('Checking comment "{}"'.format(item.body))
+                if item.parent_id[:2]=='t3' and self.config['force_top_reply']:
+                    self.generate_reply(item)
+                elif self.check_budget(item.body) and words_below(item.body, 1000):
+                    if item.was_comment:
+                        # get the keywords of the thing to which the commenter was responding
+                        item_parent = item.parent()
+                        topic_list = get_keywords(item_parent.body)
                         print("Parent keywords: "+", ".join(topic_list))
                     else:
-                        topic_list = self.config['topic_list']
-                    if self.on_topic(comment.body,topic_list):
-                        self.generate_reply(comment)
+                        # only possible option here is a mention in a submission
+                        if not self.topic_list:
+                            topic_list = get_keywords(self.bot_backstory)
+                            print("Backstory keywords: "+", ".join(topic_list))
+                        else:
+                            topic_list = self.topic_list
+                    if self.on_topic(item.body,topic_list):
+                        self.generate_reply(item)
                 print('Comment not selected for reply, skipping...')
-                comment.mark_read()
+                item.mark_read()
 
     def submission_loop(self):
         for t in self.config['post_schedule']:
@@ -549,13 +596,16 @@ class reddit_bot:
             print("Launching submission writer")
             self.submission_writer.start()
         # don't bother running submission reader if bot has no interests
-        if not self.config['topic_list']:
+        if not self.topic_list:
             print("No bot topics set, will not read submissions.")
         else:
-            print("Scanning for posts on the following topics: "+", ".join(self.config['topic_list']))
+            print("Scanning for posts on the following topics: "+", ".join(self.topic_list))
             self.submission_reader.start()
         print("Launching inbox reader")
         self.inbox_reader.start()
+
+    def shutdown(self):
+        sys.exit()
 
 def main():
     bot = reddit_bot(sys.argv[1]) #"bot_config.yaml"
