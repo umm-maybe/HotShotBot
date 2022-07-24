@@ -21,6 +21,7 @@ import http.client, urllib.request, urllib.parse, urllib.error, base64
 import json
 from praw.models import Message as praw_Message
 from transformers import pipeline
+# from detoxify import Detoxify
 
 _default_negative_keywords = [
     ('ar', 'yan'), ('ausch, witz'),
@@ -477,107 +478,113 @@ class reddit_bot:
     def watch_submissions(self):
         # watch for posts
         while True:
-            for submission in self.sub.stream.submissions(pause_after=0,skip_existing=True):
-                # decide whether to reply to a post
-                if not submission:
-                    continue
-                self.posts_seen += 1
-                if submission.author == self.me:
-                    continue
-                if self.bad_keyword(submission.title) or (submission.is_self and self.bad_keyword(submission.selftext)):
-                    continue
-                if self.is_toxic(submission.title) or (submission.is_self and self.is_toxic(submission.selftext)):
-                    continue
-                if self.config['linkpost_only']==2 and not submission.is_self:
-                    # force reply to image posts
-                    self.make_comment(submission)
-                    continue
-                elif self.config['linkpost_only']==1 and submission.is_self:
-                    continue
-                already_replied = False
-                submission.comments.replace_more(limit=None)
-                for comment in submission.comments:
-                    if comment.author == self.reddit.user.me():
-                        already_replied = True
-                        break
-                if already_replied:
-                    continue
-                if self.on_topic(submission.title,self.topic_list):
-                    print("Generating a comment on submission "+submission.id)
-                    self.make_comment(submission)
+            try:
+                for submission in self.sub.stream.submissions(pause_after=0,skip_existing=True):
+                    # decide whether to reply to a post
+                    if not submission:
+                        continue
+                    self.posts_seen += 1
+                    if submission.author == self.me:
+                        continue
+                    if self.bad_keyword(submission.title) or (submission.is_self and self.bad_keyword(submission.selftext)):
+                        continue
+                    if self.is_toxic(submission.title) or (submission.is_self and self.is_toxic(submission.selftext)):
+                        continue
+                    if self.config['linkpost_only']==2 and not submission.is_self:
+                        # force reply to image posts
+                        self.make_comment(submission)
+                        continue
+                    elif self.config['linkpost_only']==1 and submission.is_self:
+                        continue
+                    already_replied = False
+                    submission.comments.replace_more(limit=None)
+                    for comment in submission.comments:
+                        if comment.author == self.reddit.user.me():
+                            already_replied = True
+                            break
+                    if already_replied:
+                        continue
+                    if self.on_topic(submission.title,self.topic_list):
+                        print("Generating a comment on submission "+submission.id)
+                        self.make_comment(submission)
+            except:
+                print("PRAW error, restarting")
 
     def watch_inbox(self):
         while True: # not sure if this line is necessary
-            for item in self.reddit.inbox.stream(pause_after=0, skip_existing=True):
-                if not item:
-                    continue
-                if isinstance(item, praw_Message):
-                    # it's actually a message
-                    # if item.author.name==self.config['bot_operator'] and (self.config['kill_phrase'] in item.body):
-                    #     item.mark_read()
-                    #     self.shutdown()
-                    if self.config['dynamic_prompt']:
-                        if item.subject and item.body:
-                            if self.is_toxic(item.subject):
-                                item.reply(body="Backstory is toxic, rejected...")
-                                continue
-                            self.bot_backstory = 'u/{} is {}'.format(self.config['bot_username'], item.subject)
-                            user_topic_list = item.body.split(',')[:10]
-                            if user_topic_list:
-                                self.topic_list = user_topic_list
-                            else:
-                                self.topic_list = get_keywords(self.bot_backstory)
-                            status = 'Backstory changed to: {} with interests {}'.format(self.bot_backstory,self.topic_list)
-                            print(status)
-                            item.reply(body=status)
-                            self.me.subreddit.submit(title='Bot updated by {}'.format(item.author.name),selftext=status)
-                            self.make_post()
-                    item.mark_read()
-                    continue
-                self.comments_seen += 1
-                if not item.author:
-                    item.mark_read()
-                    continue
-                if self.bad_keyword(item.body):
-                    print("Bad keyword found, skipping...")
-                    item.mark_read()
-                    continue
-                if self.is_toxic(item.body):
-                    print("Comment is toxic, skipping...")
-                    item.mark_read()
-                    continue
-                already_replied = False
-                item.replies.replace_more(limit=None)
-                for reply in item.replies:
-                    if reply.author == self.me:
-                        already_replied = True
-                        break
-                if already_replied:
-                    item.mark_read()
-                    continue
-                print('Checking comment "{}"'.format(item.body))
-                if item.parent_id[:2]=='t3' and self.config['force_top_reply']:
-                    self.generate_reply(item)
-                elif self.check_budget(item.body) and words_below(item.body, 1000):
-                    if item.was_comment:
-                        # get the keywords of the thing to which the commenter was responding
-                        item_parent = item.parent()
-                        if item.parent_id[:2]=='t3':
-                            topic_list = get_keywords(item_parent.title)
-                        else:
-                            topic_list = get_keywords(item_parent.body)
-                        print("Parent keywords: "+", ".join(topic_list))
-                    else:
-                        # only possible option here is a mention in a submission
-                        if not self.topic_list:
-                            topic_list = get_keywords(self.bot_backstory)
-                            print("Backstory keywords: "+", ".join(topic_list))
-                        else:
-                            topic_list = self.topic_list
-                    if self.on_topic(item.body,topic_list):
+            try:
+                for item in self.reddit.inbox.stream(pause_after=0, skip_existing=True):
+                    if not item:
+                        continue
+                    if isinstance(item, praw_Message):
+                        # it's actually a message
+                        # if item.author.name==self.config['bot_operator'] and (self.config['kill_phrase'] in item.body):
+                        #     item.mark_read()
+                        #     self.shutdown()
+                        if self.config['dynamic_prompt']:
+                            if item.subject and item.body:
+                                if self.is_toxic(item.subject):
+                                    item.reply(body="Backstory is toxic, rejected...")
+                                    continue
+                                self.bot_backstory = 'u/{} is {}'.format(self.config['bot_username'], item.subject)
+                                user_topic_list = item.body.split(',')[:10]
+                                if user_topic_list:
+                                    self.topic_list = user_topic_list
+                                else:
+                                    self.topic_list = get_keywords(self.bot_backstory)
+                                status = 'Backstory changed to: {} with interests {}'.format(self.bot_backstory,self.topic_list)
+                                print(status)
+                                item.reply(body=status)
+                                self.me.subreddit.submit(title='Bot updated by {}'.format(item.author.name),selftext=status)
+                                self.make_post()
+                        item.mark_read()
+                        continue
+                    self.comments_seen += 1
+                    if not item.author:
+                        item.mark_read()
+                        continue
+                    if self.bad_keyword(item.body):
+                        print("Bad keyword found, skipping...")
+                        item.mark_read()
+                        continue
+                    if self.is_toxic(item.body):
+                        print("Comment is toxic, skipping...")
+                        item.mark_read()
+                        continue
+                    already_replied = False
+                    item.replies.replace_more(limit=None)
+                    for reply in item.replies:
+                        if reply.author == self.me:
+                            already_replied = True
+                            break
+                    if already_replied:
+                        item.mark_read()
+                        continue
+                    print('Checking comment "{}"'.format(item.body))
+                    if item.parent_id[:2]=='t3' and self.config['force_top_reply']:
                         self.generate_reply(item)
-                print('Comment not selected for reply, skipping...')
-                item.mark_read()
+                    elif self.check_budget(item.body) and words_below(item.body, 1000):
+                        if item.was_comment:
+                            # get the keywords of the thing to which the commenter was responding
+                            item_parent = item.parent()
+                            if item.parent_id[:2]=='t3':
+                                topic_list = get_keywords(item_parent.title)
+                            else:
+                                topic_list = get_keywords(item_parent.body)
+                            print("Parent keywords: "+", ".join(topic_list))
+                        else:
+                            # only possible option here is a mention in a submission
+                            if not self.topic_list:
+                                topic_list = get_keywords(self.bot_backstory)
+                                print("Backstory keywords: "+", ".join(topic_list))
+                            else:
+                                topic_list = self.topic_list
+                        if self.on_topic(item.body,topic_list):
+                            self.generate_reply(item)
+                    print('Comment not selected for reply, skipping...')
+                    item.mark_read()
+            except:
+                print("PRAW error, restarting")
 
     def submission_loop(self):
         for t in self.config['post_schedule']['mon']:
